@@ -1,0 +1,17 @@
+[Unit]
+Description=ArcusVerse auction server
+After=network.target
+
+[Service]
+Type=simple
+User=ec2-user
+WorkingDirectory=/home/ec2-user/ArcusVerse
+Environment=NODE_ENV=production
+Environment=PORT=3000
+Environment=PUBLIC_URL=http://3.16.112.125:3000
+ExecStart=/usr/bin/node server.mjs
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
