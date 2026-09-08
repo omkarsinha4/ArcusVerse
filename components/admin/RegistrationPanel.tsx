@@ -172,6 +172,57 @@ export function RegistrationPanel({ admin, emit }: any) {
     }
   };
 
+  const deleteCurrentForm = async () => {
+    if (!form) return;
+    const regCount = (admin.registration?.registrations || []).filter((r: any) => r.formId === form.id).length;
+    const ok = window.confirm(
+      regCount
+        ? `Delete this registration form and ${regCount} registration(s)?\nYou can create a new form afterward.`
+        : "Delete this registration form?\nYou can create a new form afterward."
+    );
+    if (!ok) return;
+    setBusy(true);
+    setMsg("");
+    try {
+      const res = await emit("reg-delete-form", { formId: form.id, force: regCount > 0 });
+      if (!res.ok) throw new Error(res.error || "Delete failed");
+      setDraft(null);
+      setSelectedReg(null);
+      setDashboard(null);
+      setMsg("Form deleted — create a new one below");
+      setTab("Dashboard");
+    } catch (e: any) {
+      setMsg(e.message || "Delete failed");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const recreateCurrentForm = async (template: string) => {
+    if (!tournamentId) return;
+    const regCount = form
+      ? (admin.registration?.registrations || []).filter((r: any) => r.formId === form.id).length
+      : 0;
+    const ok = window.confirm(
+      regCount
+        ? `Replace the current form with a ${template === "blank" ? "blank" : "ACPL"} template and remove ${regCount} registration(s)?`
+        : `Replace the current form with a ${template === "blank" ? "blank" : "ACPL"} template?`
+    );
+    if (!ok) return;
+    setBusy(true);
+    setMsg("");
+    try {
+      const res = await emit("reg-recreate-form", { tournamentId, template, force: true });
+      if (!res.ok) throw new Error(res.error || "Recreate failed");
+      setMsg("Form recreated");
+      setTab("Settings");
+    } catch (e: any) {
+      setMsg(e.message || "Recreate failed");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const updateRegStatus = async (registrationId: string, status: string, confirmPromote = false) => {
     if (status === "registered") {
       const ok = window.confirm(
@@ -524,6 +575,25 @@ export function RegistrationPanel({ admin, emit }: any) {
                 <Button disabled={busy} onClick={() => setStatus("draft")}>
                   Back to draft
                 </Button>
+              </div>
+              <div className="neu-sm space-y-2 px-4 py-3">
+                <p className="text-xs font-bold uppercase tracking-widest" style={{ color: "var(--muted)" }}>
+                  Start over
+                </p>
+                <p className="text-sm" style={{ color: "var(--muted)" }}>
+                  Delete this form to return to the create screen, or replace it with a fresh template.
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <Button disabled={busy} onClick={() => recreateCurrentForm("acpl6")}>
+                    Replace with ACPL template
+                  </Button>
+                  <Button disabled={busy} onClick={() => recreateCurrentForm("blank")}>
+                    Replace with blank form
+                  </Button>
+                  <Button variant="danger" disabled={busy} onClick={deleteCurrentForm}>
+                    Delete form
+                  </Button>
+                </div>
               </div>
             </Card>
           ) : null}

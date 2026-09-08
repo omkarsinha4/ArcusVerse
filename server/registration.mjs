@@ -467,6 +467,40 @@ export function createForm(store, { tournamentId, template }) {
   return form;
 }
 
+/** Remove a form so a new one can be created. Blocks if registrations exist unless force=true. */
+export function deleteForm(store, formId, { force = false } = {}) {
+  ensureCollections(store);
+  const i = store.registrationForms.findIndex((f) => f.id === formId);
+  if (i < 0) throw new Error("Form not found");
+  const form = store.registrationForms[i];
+  const regCount = (store.registrations || []).filter((r) => r.formId === formId).length;
+  if (regCount > 0 && !force) {
+    throw new Error(
+      `This form has ${regCount} registration(s). Confirm force delete to remove the form and its registrations.`
+    );
+  }
+  if (force && regCount > 0) {
+    const regIds = new Set(
+      (store.registrations || []).filter((r) => r.formId === formId).map((r) => r.id)
+    );
+    store.registrations = (store.registrations || []).filter((r) => r.formId !== formId);
+    store.registrationAudits = (store.registrationAudits || []).filter((a) => !regIds.has(a.registrationId));
+    store.registrationFiles = (store.registrationFiles || []).filter((f) => f.formId !== formId);
+  }
+  store.registrationForms.splice(i, 1);
+  return { deletedId: form.id, tournamentId: form.tournamentId, removedRegistrations: force ? regCount : 0 };
+}
+
+/** Delete existing form (if any) and create a fresh template for the tournament. */
+export function recreateForm(store, { tournamentId, template, force = false }) {
+  ensureCollections(store);
+  const existing = getFormByTournament(store, tournamentId);
+  if (existing) {
+    deleteForm(store, existing.id, { force });
+  }
+  return createForm(store, { tournamentId, template: template || "acpl6" });
+}
+
 export function upsertForm(store, patch) {
   ensureCollections(store);
   const i = store.registrationForms.findIndex((f) => f.id === patch.id);

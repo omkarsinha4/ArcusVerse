@@ -22,6 +22,8 @@ import {
   createForm,
   upsertForm,
   setFormStatus,
+  deleteForm,
+  recreateForm,
   dashboardForForm,
   listRegistrations,
   updateRegistrationStatus,
@@ -1079,6 +1081,30 @@ export function attachSockets(io, store, urls) {
       wrap((p) => {
         requireRole(socket, REG_ADMIN);
         const form = setFormStatus(store, p.formId, p.status);
+        io.to("admin").emit("admin-state", adminState(store));
+        return { admin: adminState(store), form };
+      })
+    );
+
+    socket.on(
+      "reg-delete-form",
+      wrap((p) => {
+        requireRole(socket, REG_ADMIN);
+        const result = deleteForm(store, p.formId, { force: p.force === true });
+        io.to("admin").emit("admin-state", adminState(store));
+        return { admin: adminState(store), ...result };
+      })
+    );
+
+    socket.on(
+      "reg-recreate-form",
+      wrap((p) => {
+        requireRole(socket, REG_ADMIN);
+        const form = recreateForm(store, {
+          tournamentId: p.tournamentId,
+          template: p.template || "acpl6",
+          force: p.force === true
+        });
         io.to("admin").emit("admin-state", adminState(store));
         return { admin: adminState(store), form };
       })
