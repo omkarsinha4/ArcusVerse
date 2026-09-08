@@ -4,6 +4,7 @@ import { fileURLToPath } from "url";
 import { createHmac, randomBytes, timingSafeEqual } from "crypto";
 import { uid } from "./store.mjs";
 import { buildAcplSeason6Form, blankRegistrationForm, normalizePublicSlug, suggestPublicSlug } from "./registration-template-acpl6.mjs";
+import { findAcplPlayer } from "./acpl.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const PRIVATE_UPLOAD_DIR = path.join(__dirname, "..", "data", "private-uploads");
@@ -356,6 +357,111 @@ function categoryKey(values) {
   return String(values?.category || "").trim();
 }
 
+/** Short code for registration IDs: Men's → MEN, Women's → WOMEN, Kid's → KIDS */
+export function categoryCode(category) {
+  const s = String(category || "")
+    .toLowerCase()
+    .replace(/['’]/g, "")
+    .replace(/[^a-z]/g, "");
+  if (s.startsWith("men")) return "MEN";
+  if (s.startsWith("women")) return "WOMEN";
+  if (s.startsWith("kid")) return "KIDS";
+  return (s.slice(0, 6) || "CAT").toUpperCase();
+}
+
+function formatCategoryRegId(prefix, category, sequence) {
+  const p = String(prefix || "REG").replace(/-+$/, "");
+  const code = categoryCode(category);
+  return `${p}-${code}-${String(sequence).padStart(4, "0")}`;
+}
+
+/** Statuses that can hold a category registration number. */
+function numberedStatuses() {
+  return new Set(["registered", "waiting", "approved", "under_review"]);
+}
+
+function holdsCategoryNumber(r) {
+  return numberedStatuses().has(r.status) && Number(r.categorySequence || r.sequence) > 0;
+}
+
+/**
+ * New submissions get max+1 within the category (order of signup / timestamp).
+ * Promote does not change numbers.
+ */
+export function assignNextCategorySequence(store, form, registration) {
+  const cat = categoryKey(registration.values);
+  const existing = (store.registrations || []).filter(
+    (r) => r.formId === form.id && r.id !== registration.id && categoryKey(r.values) === cat && holdsCategoryNumber(r)
+  );
+  const max = existing.reduce((m, r) => Math.max(m, Number(r.categorySequence || r.sequence) || 0), 0);
+  const n = max + 1;
+  registration.categorySequence = n;
+  registration.sequence = n;
+  registration.registrationSequence = n;
+  registration.registrationId = formatCategoryRegId(form.idPrefix, cat, n);
+  return n;
+}
+
+/** After a registration leaves the numbered set, decrement later numbers in that category. */
+export function decrementCategorySequencesAfter(store, form, category, removedSequence) {
+  const removed = Number(removedSequence) || 0;
+  if (!removed) return;
+  for (const r of store.registrations || []) {
+    if (r.formId !== form.id) continue;
+    if (categoryKey(r.values) !== category) continue;
+    if (!holdsCategoryNumber(r)) continue;
+    const n = Number(r.categorySequence || r.sequence) || 0;
+    if (n > removed) {
+      const next = n - 1;
+      r.categorySequence = next;
+      r.sequence = next;
+      r.registrationSequence = next;
+      r.registrationId = formatCategoryRegId(form.idPrefix, category, next);
+    }
+  }
+}
+
+function clearCategoryNumber(registration) {
+  registration.categorySequence = 0;
+  registration.sequence = 0;
+  registration.registrationSequence = 0;
+}
+
+/** Full rebuild by registeredAt — repair / re-promote. */
+export function recomputeCategorySequences(store, form, category = null) {
+  ensureCollections(store);
+  const cats = new Set();
+  if (category != null && category !== "") cats.add(category);
+  else {
+    for (const r of store.registrations || []) {
+      if (r.formId !== form.id) continue;
+      cats.add(categoryKey(r.values) || "");
+    }
+  }
+  for (const cat of cats) {
+    const rows = (store.registrations || [])
+      .filter(
+        (r) =>
+          r.formId === form.id &&
+          categoryKey(r.values) === cat &&
+          numberedStatuses().has(r.status)
+      )
+      .sort((a, b) => {
+        const ta = Number(a.registeredAt) || 0;
+        const tb = Number(b.registeredAt) || 0;
+        if (ta !== tb) return ta - tb;
+        return String(a.id).localeCompare(String(b.id));
+      });
+    rows.forEach((r, i) => {
+      const n = i + 1;
+      r.categorySequence = n;
+      r.sequence = n;
+      r.registrationSequence = n;
+      r.registrationId = formatCategoryRegId(form.idPrefix, cat, n);
+    });
+  }
+}
+
 function countRegistered(store, form, category = null) {
   return (store.registrations || []).filter((r) => {
     if (r.formId !== form.id) return false;
@@ -375,7 +481,12 @@ function capacityLimit(form, category) {
 function recomputeWaitingPositions(store, form) {
   const waiting = (store.registrations || [])
     .filter((r) => r.formId === form.id && r.status === "waiting")
-    .sort((a, b) => a.sequence - b.sequence);
+    .sort((a, b) => {
+      const ta = Number(a.registeredAt) || 0;
+      const tb = Number(b.registeredAt) || 0;
+      if (ta !== tb) return ta - tb;
+      return (a.sequence || 0) - (b.sequence || 0);
+    });
 
   if (form.useCategoryCapacity) {
     const byCat = new Map();
@@ -415,13 +526,13 @@ function resolveCategoryId(store, categoryLabel) {
   return found?.id || store.categories[0]?.id;
 }
 
-function findOrCreatePlayer(store, form, values, fileMeta) {
+function findOrCreatePlayer(store, form, values, fileMeta, { attachToTournament = false, linkAcpl = false } = {}) {
   const phone = normalizePhone(values.mobile);
   const name = String(values.playerName || "").trim();
   let player =
     (store.players || []).find((p) => phone && normalizePhone(p.phone) === phone) ||
     (store.players || []).find(
-      (p) => phone && normalizePhone(p.phone) === phone && String(p.name).toLowerCase() === name.toLowerCase()
+      (p) => name && String(p.name || "").toLowerCase() === name.toLowerCase() && normalizePhone(p.phone) === phone
     );
 
   const categoryId = resolveCategoryId(store, values.category);
@@ -429,33 +540,123 @@ function findOrCreatePlayer(store, form, values, fileMeta) {
   const photoUrl = fileMeta?.publicPhotoUrl || "";
 
   if (player) {
-    const tids = new Set(player.tournamentIds || []);
-    tids.add(form.tournamentId);
-    player.tournamentIds = [...tids];
-    if (!player.phone && phone) player.phone = phone;
+    player.name = name || player.name;
+    player.role = mapRoleFromValues(values) || player.role;
+    player.categoryId = categoryId || player.categoryId;
+    player.sport = tournament?.sport || player.sport || "Cricket";
+    if (phone) player.phone = phone;
     if (form.photoPolicy === "keepExisting") {
       if (!player.photo && photoUrl) player.photo = photoUrl;
     } else if (photoUrl) {
       player.photo = photoUrl;
     }
-    return player;
+    // Keep registration extras for admin/auction
+    player.registrationMeta = {
+      ...(player.registrationMeta || {}),
+      category: values.category || "",
+      dob: values.dob || "",
+      jerseyName: values.jerseyName || values.jersey || "",
+      jerseyNumber: values.jerseyNumber || "",
+      playerType: values.playerType || "",
+      battingHand: values.battingHand || "",
+      bowlingHand: values.bowlingHand || "",
+      auctionTeam: values.auctionTeam || ""
+    };
+  } else {
+    player = {
+      id: uid(),
+      name,
+      photo: photoUrl || "",
+      role: mapRoleFromValues(values),
+      categoryId,
+      sport: tournament?.sport || "Cricket",
+      basePrice: 100,
+      phone,
+      teamId: null,
+      assignment: "auction",
+      tournamentIds: [],
+      registrationMeta: {
+        category: values.category || "",
+        dob: values.dob || "",
+        jerseyName: values.jerseyName || values.jersey || "",
+        jerseyNumber: values.jerseyNumber || "",
+        playerType: values.playerType || "",
+        battingHand: values.battingHand || "",
+        bowlingHand: values.bowlingHand || "",
+        auctionTeam: values.auctionTeam || ""
+      }
+    };
+    store.players.push(player);
   }
 
-  player = {
-    id: uid(),
-    name,
-    photo: photoUrl || "",
-    role: mapRoleFromValues(values),
-    categoryId,
-    sport: tournament?.sport || "Cricket",
-    basePrice: 100,
-    phone,
-    teamId: null,
-    assignment: "auction",
-    tournamentIds: [form.tournamentId]
-  };
-  store.players.push(player);
+  if (attachToTournament && tournament) {
+    const tids = new Set(player.tournamentIds || []);
+    tids.add(form.tournamentId);
+    player.tournamentIds = [...tids];
+    if (!Array.isArray(tournament.playerIds)) tournament.playerIds = [];
+    if (!tournament.playerIds.includes(player.id)) tournament.playerIds.push(player.id);
+  }
+
+  if (linkAcpl) {
+    linkPlayerAcplStats(store, player);
+  }
+
   return player;
+}
+
+/** Match ACPL stats by player name and store link for auction UI. */
+export function linkPlayerAcplStats(store, player) {
+  if (!player) return null;
+  const match = findAcplPlayer(store, player.name);
+  if (match) {
+    player.acplPlayerId = match.id;
+    player.acplName = match.name;
+    return match;
+  }
+  player.acplPlayerId = null;
+  player.acplName = null;
+  return null;
+}
+
+export function setAcplLinker(_fn) {
+  /* no-op — kept for compatibility */
+}
+
+/** Activate a registration into the tournament player list (promote or payment verified). */
+export function activateRegistrationPlayer(store, registration, { saveUploadFn } = {}) {
+  ensureCollections(store);
+  const form = store.registrationForms.find((f) => f.id === registration.formId);
+  if (!form) throw new Error("Form not found");
+
+  let publicPhotoUrl = "";
+  const photoId = registration.fileIds?.playerPhoto;
+  if (photoId && saveUploadFn) {
+    const photoFile = store.registrationFiles.find((f) => f.id === photoId);
+    if (photoFile) publicPhotoUrl = materializePlayerPhoto(store, photoFile, saveUploadFn) || "";
+  } else if (photoId) {
+    const existing = store.players.find((p) => p.id === registration.playerId);
+    publicPhotoUrl = existing?.photo || "";
+  }
+
+  const player = findOrCreatePlayer(store, form, registration.values || {}, { publicPhotoUrl }, {
+    attachToTournament: true,
+    linkAcpl: true
+  });
+  registration.playerId = player.id;
+  return player;
+}
+
+/** Remove player from tournament roster when registration leaves active registered set. */
+function detachRegistrationPlayer(store, registration) {
+  if (!registration?.playerId) return;
+  const tournament = store.tournaments.find((t) => t.id === registration.tournamentId);
+  if (tournament && Array.isArray(tournament.playerIds)) {
+    tournament.playerIds = tournament.playerIds.filter((id) => id !== registration.playerId);
+  }
+  const player = store.players.find((p) => p.id === registration.playerId);
+  if (player) {
+    player.tournamentIds = (player.tournamentIds || []).filter((id) => id !== registration.tournamentId);
+  }
 }
 
 export function getFormByToken(store, tokenOrSlug) {
@@ -515,7 +716,12 @@ export function publicFormPayload(store, form) {
 
   const accepting = formIsAccepting(form);
   // Tournament logo is the source of truth for the public header
-  const logo = tournament?.logo || form.logo || "";
+  let logo = tournament?.logo || form.logo || "";
+  // Cache-bust so browsers pick up newly uploaded logos (Next used to 404 until restart)
+  if (logo && logo.startsWith("/uploads/")) {
+    const ver = tournament?.updatedAt || form.updatedAt || Date.now();
+    logo = `${logo.split("?")[0]}?v=${ver}`;
+  }
   return {
     form: {
       id: form.id,
@@ -755,8 +961,6 @@ export async function submitRegistration(store, { token, values, fileIds }, { sa
     }
 
     const registeredAt = Date.now();
-    const sequence = nextSequence(store, form.tournamentId);
-    const registrationId = formatRegId(form.idPrefix, sequence);
     const cat = categoryKey(cleanValues);
     const limit = capacityLimit(form, cat);
     const used = form.useCategoryCapacity ? countRegistered(store, form, cat) : countRegistered(store, form);
@@ -772,17 +976,25 @@ export async function submitRegistration(store, { token, values, fileIds }, { sa
       publicPhotoUrl = materializePlayerPhoto(store, photoFile, saveUploadFn);
     }
 
-    const player = findOrCreatePlayer(store, form, cleanValues, { publicPhotoUrl });
+    // Create/update player record; only attach to tournament roster when registered
+    const player = findOrCreatePlayer(
+      store,
+      form,
+      cleanValues,
+      { publicPhotoUrl },
+      { attachToTournament: status === "registered", linkAcpl: status === "registered" }
+    );
 
     const registration = {
       id: uid(),
-      registrationId,
+      registrationId: "",
       tournamentId: form.tournamentId,
       formId: form.id,
       formVersion: form.version,
       playerId: player.id,
-      registrationSequence: sequence,
-      sequence,
+      registrationSequence: 0,
+      sequence: 0,
+      categorySequence: 0,
       registeredAt,
       status,
       waitingPosition,
@@ -802,10 +1014,11 @@ export async function submitRegistration(store, { token, values, fileIds }, { sa
       }
     }
 
+    assignNextCategorySequence(store, form, registration);
     recomputeWaitingPositions(store, form);
 
-    audit(store, registration.id, "submitted", null, { status, sequence, registrationId }, performedBy || "public");
-    audit(store, registration.id, "sequence_assigned", null, sequence, "system");
+    audit(store, registration.id, "submitted", null, { status, sequence: registration.sequence, registrationId: registration.registrationId }, performedBy || "public");
+    audit(store, registration.id, "sequence_assigned", null, registration.sequence, "system");
     if (status === "waiting") {
       audit(store, registration.id, "waiting_list", null, registration.waitingPosition, "system");
     } else {
@@ -816,6 +1029,8 @@ export async function submitRegistration(store, { token, values, fileIds }, { sa
       registration: {
         registrationId: registration.registrationId,
         sequence: registration.sequence,
+        categorySequence: registration.categorySequence || registration.sequence,
+        category: cat,
         registeredAt: registration.registeredAt,
         status: registration.status,
         waitingPosition: registration.waitingPosition,
@@ -825,26 +1040,36 @@ export async function submitRegistration(store, { token, values, fileIds }, { sa
   });
 }
 
-export function promoteNextWaiting(store, form, category, performedBy) {
+export function promoteNextWaiting(store, form, category, performedBy, { saveUploadFn } = {}) {
   const waiting = (store.registrations || [])
     .filter((r) => {
       if (r.formId !== form.id || r.status !== "waiting") return false;
       if (form.useCategoryCapacity && category) return categoryKey(r.values) === category;
       return true;
     })
-    .sort((a, b) => a.sequence - b.sequence);
+    .sort((a, b) => {
+      const ta = Number(a.registeredAt) || 0;
+      const tb = Number(b.registeredAt) || 0;
+      if (ta !== tb) return ta - tb;
+      return (a.sequence || 0) - (b.sequence || 0);
+    });
   const next = waiting[0];
   if (!next) return null;
   const old = next.status;
   next.status = "registered";
   next.waitingPosition = null;
   next.updatedAt = Date.now();
+  // Keep existing category number (timestamp order). If demoted earlier (no number), rebuild by time.
+  if (!holdsCategoryNumber(next)) {
+    recomputeCategorySequences(store, form, categoryKey(next.values));
+  }
+  activateRegistrationPlayer(store, next, { saveUploadFn });
   audit(store, next.id, "promoted", old, "registered", performedBy || "system");
   recomputeWaitingPositions(store, form);
   return next;
 }
 
-export function updateRegistrationStatus(store, registrationId, status, performedBy, { confirmPromote } = {}) {
+export function updateRegistrationStatus(store, registrationId, status, performedBy, { confirmPromote, saveUploadFn } = {}) {
   return withRegLock(() => {
     ensureCollections(store);
     const reg = store.registrations.find((r) => r.id === registrationId || r.registrationId === registrationId);
@@ -861,29 +1086,95 @@ export function updateRegistrationStatus(store, registrationId, status, performe
 
     const old = reg.status;
     const wasRegistered = old === "registered";
+    const cat = categoryKey(reg.values);
+    const priorSeq = Number(reg.categorySequence || reg.sequence) || 0;
+    const hadNumber = holdsCategoryNumber(reg);
+
     reg.status = status;
     reg.updatedAt = Date.now();
     if (status !== "waiting") reg.waitingPosition = null;
     audit(store, reg.id, "status_changed", old, status, performedBy || "admin");
 
-    if (wasRegistered && (status === "cancelled" || status === "rejected")) {
-      promoteNextWaiting(store, form, categoryKey(reg.values), performedBy || "system");
+    if (status === "registered") {
+      activateRegistrationPlayer(store, reg, { saveUploadFn });
+      // Promote keeps original number; if missing (after demote), restore by timestamp order
+      if (!holdsCategoryNumber(reg)) {
+        recomputeCategorySequences(store, form, cat);
+      }
+    } else if (wasRegistered && (status === "waiting" || status === "cancelled" || status === "rejected")) {
+      detachRegistrationPlayer(store, reg);
     }
+
+    // Demote / cancel / reject → later registration numbers in this category drop by 1
+    if (
+      hadNumber &&
+      (status === "cancelled" || status === "rejected" || (wasRegistered && status === "waiting"))
+    ) {
+      clearCategoryNumber(reg);
+      decrementCategorySequencesAfter(store, form, cat, priorSeq);
+    }
+
+    if (wasRegistered && (status === "cancelled" || status === "rejected")) {
+      promoteNextWaiting(store, form, cat, performedBy || "system", { saveUploadFn });
+    }
+
     recomputeWaitingPositions(store, form);
     return reg;
   });
 }
 
-export function setPaymentStatus(store, registrationId, paymentStatus, performedBy) {
+export function setPaymentStatus(store, registrationId, paymentStatus, performedBy, { saveUploadFn } = {}) {
   ensureCollections(store);
   const reg = store.registrations.find((r) => r.id === registrationId || r.registrationId === registrationId);
   if (!reg) throw new Error("Registration not found");
   if (!["pending", "verified", "rejected"].includes(paymentStatus)) throw new Error("Invalid payment status");
-  const old = reg.paymentStatus;
+  const oldPay = reg.paymentStatus;
+  const oldStatus = reg.status;
   reg.paymentStatus = paymentStatus;
   reg.updatedAt = Date.now();
-  audit(store, reg.id, "payment_status", old, paymentStatus, performedBy || "admin");
+  audit(store, reg.id, "payment_status", oldPay, paymentStatus, performedBy || "admin");
+
+  if (paymentStatus === "verified") {
+    if (reg.status !== "registered") {
+      reg.status = "registered";
+      reg.waitingPosition = null;
+      audit(store, reg.id, "status_changed", oldStatus, "registered", performedBy || "admin");
+      if (!holdsCategoryNumber(reg)) {
+        const form = store.registrationForms.find((f) => f.id === reg.formId);
+        if (form) recomputeCategorySequences(store, form, categoryKey(reg.values));
+      }
+    }
+    activateRegistrationPlayer(store, reg, { saveUploadFn });
+    const form = store.registrationForms.find((f) => f.id === reg.formId);
+    if (form) recomputeWaitingPositions(store, form);
+  }
   return reg;
+}
+
+export function deleteRegistration(store, registrationId, performedBy, { saveUploadFn } = {}) {
+  return withRegLock(() => {
+    ensureCollections(store);
+    const reg = store.registrations.find((r) => r.id === registrationId || r.registrationId === registrationId);
+    if (!reg) throw new Error("Registration not found");
+    const form = store.registrationForms.find((f) => f.id === reg.formId);
+    if (!form) throw new Error("Form not found");
+    const cat = categoryKey(reg.values);
+    const wasRegistered = reg.status === "registered";
+    const priorSeq = Number(reg.categorySequence || reg.sequence) || 0;
+    const hadNumber = holdsCategoryNumber(reg);
+
+    detachRegistrationPlayer(store, reg);
+    store.registrations = store.registrations.filter((r) => r.id !== reg.id);
+    audit(store, reg.id, "deleted", reg.status, null, performedBy || "admin");
+
+    if (hadNumber) decrementCategorySequencesAfter(store, form, cat, priorSeq);
+
+    if (wasRegistered) {
+      promoteNextWaiting(store, form, cat, performedBy || "system", { saveUploadFn });
+    }
+    recomputeWaitingPositions(store, form);
+    return { deletedId: reg.id, category: cat };
+  });
 }
 
 export function dashboardForForm(store, formId) {
@@ -924,12 +1215,21 @@ export function listRegistrations(store, formId, { status } = {}) {
   ensureCollections(store);
   return store.registrations
     .filter((r) => r.formId === formId && (!status || r.status === status))
-    .sort((a, b) => a.sequence - b.sequence)
+    .sort((a, b) => {
+      const ca = categoryKey(a.values);
+      const cb = categoryKey(b.values);
+      if (ca !== cb) return ca.localeCompare(cb);
+      const ta = Number(a.registeredAt) || 0;
+      const tb = Number(b.registeredAt) || 0;
+      if (ta !== tb) return ta - tb;
+      return (a.sequence || 0) - (b.sequence || 0);
+    })
     .map((r) => ({
       ...r,
       playerName: r.values?.playerName || store.players.find((p) => p.id === r.playerId)?.name || "",
       mobile: r.values?.mobile || "",
-      category: r.values?.category || ""
+      category: r.values?.category || "",
+      categorySequence: r.categorySequence || r.sequence
     }));
 }
 
