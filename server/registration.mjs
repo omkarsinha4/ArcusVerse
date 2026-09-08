@@ -507,6 +507,7 @@ export function publicFormPayload(store, form) {
       title: form.title,
       description: form.description,
       logo: form.logo || tournament?.logo || "",
+      publicSlug: form.publicSlug || "",
       status: form.status,
       opensAt: form.opensAt,
       closesAt: form.closesAt,
@@ -517,7 +518,13 @@ export function publicFormPayload(store, form) {
       version: form.version
     },
     tournament: tournament
-      ? { id: tournament.id, name: tournament.name, sport: tournament.sport, venue: tournament.venue }
+      ? {
+          id: tournament.id,
+          name: tournament.name,
+          sport: tournament.sport,
+          venue: tournament.venue,
+          logo: tournament.logo || ""
+        }
       : null,
     accepting
   };
@@ -574,6 +581,7 @@ export function upsertForm(store, patch) {
   const i = store.registrationForms.findIndex((f) => f.id === patch.id);
   if (i < 0) throw new Error("Form not found");
   const prev = store.registrationForms[i];
+  const tournament = store.tournaments.find((t) => t.id === prev.tournamentId);
   const next = {
     ...prev,
     ...patch,
@@ -587,8 +595,12 @@ export function upsertForm(store, patch) {
   if (patch.publicSlug != null) {
     next.publicSlug = assertUniqueSlug(store, patch.publicSlug, prev.id);
   } else if (!next.publicSlug) {
-    const tournament = store.tournaments.find((t) => t.id === prev.tournamentId);
     next.publicSlug = assertUniqueSlug(store, suggestPublicSlug(tournament, { idPrefix: next.idPrefix }), prev.id);
+  }
+  if (!next.logo && tournament?.logo) next.logo = tournament.logo;
+  // Keep tournament logo aligned when form logo is set
+  if (next.logo && tournament && !tournament.logo) {
+    tournament.logo = next.logo;
   }
   if (Array.isArray(patch.fields) && patch.fields !== prev.fields) {
     next.fieldHistory = [...(prev.fieldHistory || []), { version: prev.version, fields: prev.fields, at: Date.now() }].slice(

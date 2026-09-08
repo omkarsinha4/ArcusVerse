@@ -292,7 +292,13 @@ export function DynamicForm({ form, mode = "public", onSubmit, uploadFile }: Pro
   return (
     <div className="space-y-6">
       <header className="space-y-3 text-center">
-        {form.logo ? <img src={form.logo} alt="" className="mx-auto h-20 w-20 rounded-2xl object-cover" /> : null}
+        {form.logo ? (
+          <img
+            src={form.logo}
+            alt={form.title || "Tournament logo"}
+            className="mx-auto h-24 w-24 rounded-2xl object-cover sm:h-28 sm:w-28"
+          />
+        ) : null}
         <h1 className="font-display text-4xl">{form.title}</h1>
         {form.description ? (
           <p className="whitespace-pre-line text-sm" style={{ color: "var(--muted)" }}>

@@ -413,6 +413,7 @@ export function attachSockets(io, store, urls) {
         const body = {
           name: p.name || "New tournament",
           sport: p.sport || "Cricket",
+          logo: p.logo || "",
           startDate: p.startDate || "",
           endDate: p.endDate || "",
           venue: p.venue || "",
@@ -467,6 +468,12 @@ export function attachSockets(io, store, urls) {
           if (playerIds.includes(pl.id)) ids.add(tournament.id);
           else ids.delete(tournament.id);
           pl.tournamentIds = Array.from(ids);
+        }
+        // Keep registration form header logo in sync with tournament logo when set
+        const regForm = getFormByTournament(store, tournament.id);
+        if (regForm && body.logo) {
+          regForm.logo = body.logo;
+          regForm.updatedAt = Date.now();
         }
         io.to("admin").emit("admin-state", adminState(store));
         return { admin: adminState(store) };

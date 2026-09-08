@@ -82,12 +82,15 @@ export function RegistrationPanel({ admin, emit }: any) {
 
   useEffect(() => {
     if (form) {
-      setDraft(JSON.parse(JSON.stringify(form)));
+      const tour = tournaments.find((t: any) => t.id === form.tournamentId);
+      const next = JSON.parse(JSON.stringify(form));
+      if (!next.logo && tour?.logo) next.logo = tour.logo;
+      setDraft(next);
       setSelectedFieldKey(form.fields?.[0]?.key || "");
     } else {
       setDraft(null);
     }
-  }, [form?.id, form?.updatedAt]);
+  }, [form?.id, form?.updatedAt, form?.logo, tournamentId]);
 
   useEffect(() => {
     if (!form?.id || tab !== "Dashboard") return;
@@ -404,6 +407,21 @@ export function RegistrationPanel({ admin, emit }: any) {
                 }}
               />
               {draft.logo ? <img src={draft.logo} alt="" className="h-16 w-16 rounded-xl object-cover" /> : null}
+              {!draft.logo && tournaments.find((t: any) => t.id === tournamentId)?.logo ? (
+                <Button
+                  onClick={() =>
+                    setDraft({
+                      ...draft,
+                      logo: tournaments.find((t: any) => t.id === tournamentId)?.logo || ""
+                    })
+                  }
+                >
+                  Use tournament logo
+                </Button>
+              ) : null}
+              <p className="text-xs" style={{ color: "var(--muted)" }}>
+                This logo appears at the top of the public registration page. Saving a tournament logo also updates it here.
+              </p>
               <div className="grid gap-3 md:grid-cols-2">
                 <Field
                   label="Opens at (IST)"
