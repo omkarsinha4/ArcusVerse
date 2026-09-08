@@ -173,6 +173,7 @@ export function emptySeed() {
     id: uid(),
     name: "ACPL Season 1",
     sport: "Cricket",
+    logo: "",
     startDate: "2026-08-22",
     endDate: "2026-08-24",
     venue: "Arcus Ground",
@@ -243,7 +244,8 @@ export function emptySeed() {
       adminPin: "0000",
       auctioneerPin: "1111",
       liveBidding: false,
-      updatedAt: Date.now()
+      updatedAt: Date.now(),
+      regFileSecret: randomUUID().replace(/-/g, "") + randomUUID().replace(/-/g, "")
     },
     tournaments: [tournament],
     categories: [men, women, kids],
@@ -260,7 +262,11 @@ export function emptySeed() {
         teamId: null
       }
     ],
-    auctions: [auction]
+    auctions: [auction],
+    registrationForms: [],
+    registrations: [],
+    registrationFiles: [],
+    registrationAudits: []
   };
 }
 
@@ -337,6 +343,18 @@ export function migrate(store) {
     return row;
   });
   ensureUsers(store);
+  store.registrationForms ||= [];
+  store.registrations ||= [];
+  store.registrationFiles ||= [];
+  store.registrationAudits ||= [];
+  if (!store.meta.regFileSecret) {
+    store.meta.regFileSecret = randomUUID().replace(/-/g, "") + randomUUID().replace(/-/g, "");
+  }
+  store.tournaments = (store.tournaments || []).map((t) => ({
+    logo: "",
+    ...t,
+    logo: t.logo || ""
+  }));
   return store;
 }
 

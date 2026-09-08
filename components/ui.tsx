@@ -272,6 +272,7 @@ export function adminNav(staff?: string) {
   const items = [
     { href: "/admin", label: "Overview" },
     { href: "/admin/tournaments", label: "Tournaments" },
+    { href: "/admin/registration", label: "Registration" },
     { href: "/admin/auctions", label: "Auctions" },
     { href: "/admin/teams", label: "Teams" },
     { href: "/admin/owners", label: "Owners" },

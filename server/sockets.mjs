@@ -18,6 +18,19 @@ import {
 import { uid, pin4, hashPw, saveUpload, saveStore, DEFAULT_INCREMENTS, publicUser } from "./store.mjs";
 import { buildAuctionFixture } from "./schedule.mjs";
 import { importAcplHistory, defaultAcplDataRoot, findAcplPlayer, acplCareerSummary } from "./acpl.mjs";
+import {
+  createForm,
+  upsertForm,
+  setFormStatus,
+  dashboardForForm,
+  listRegistrations,
+  updateRegistrationStatus,
+  setPaymentStatus,
+  exportCsv,
+  signFileAccess,
+  getFormByTournament,
+  validateFormForOpen
+} from "./registration.mjs";
 
 function rosterFromTournament(store, tournament) {
   const categoryId = tournament?.categoryId || store.categories[0]?.id;
@@ -275,6 +288,16 @@ export function attachSockets(io, store, urls) {
     const wrap = (fn) => (payload, cb) => {
       try {
         const result = fn(payload || {});
+        persist();
+        cb?.({ ok: true, ...result });
+      } catch (e) {
+        cb?.({ ok: false, error: e.message });
+      }
+    };
+
+    const wrapAsync = (fn) => async (payload, cb) => {
+      try {
+        const result = await fn(payload || {});
         persist();
         cb?.({ ok: true, ...result });
       } catch (e) {
@@ -1026,6 +1049,105 @@ export function attachSockets(io, store, urls) {
         const auction = placeBid(store, auctionId, teamId, amount, { staff });
         broadcast(auction.id);
         return ok(store, auction.id);
+      })
+    );
+
+    const REG_ADMIN = ["super", "admin"];
+
+    socket.on(
+      "reg-create-form",
+      wrap((p) => {
+        requireRole(socket, REG_ADMIN);
+        const form = createForm(store, { tournamentId: p.tournamentId, template: p.template || "acpl6" });
+        io.to("admin").emit("admin-state", adminState(store));
+        return { admin: adminState(store), form };
+      })
+    );
+
+    socket.on(
+      "reg-upsert-form",
+      wrap((p) => {
+        requireRole(socket, REG_ADMIN);
+        const form = upsertForm(store, p);
+        io.to("admin").emit("admin-state", adminState(store));
+        return { admin: adminState(store), form };
+      })
+    );
+
+    socket.on(
+      "reg-set-status",
+      wrap((p) => {
+        requireRole(socket, REG_ADMIN);
+        const form = setFormStatus(store, p.formId, p.status);
+        io.to("admin").emit("admin-state", adminState(store));
+        return { admin: adminState(store), form };
+      })
+    );
+
+    socket.on(
+      "reg-dashboard",
+      wrap((p) => {
+        requireRole(socket, REG_ADMIN);
+        return { dashboard: dashboardForForm(store, p.formId) };
+      })
+    );
+
+    socket.on(
+      "reg-list",
+      wrap((p) => {
+        requireRole(socket, REG_ADMIN);
+        return { registrations: listRegistrations(store, p.formId, { status: p.status }) };
+      })
+    );
+
+    socket.on(
+      "reg-update-status",
+      wrapAsync(async (p) => {
+        requireRole(socket, REG_ADMIN);
+        const who = socket.data.userId || socket.data.role || "admin";
+        const registration = await updateRegistrationStatus(store, p.registrationId, p.status, who, {
+          confirmPromote: p.confirmPromote === true
+        });
+        io.to("admin").emit("admin-state", adminState(store));
+        return { admin: adminState(store), registration };
+      })
+    );
+
+    socket.on(
+      "reg-set-payment",
+      wrap((p) => {
+        requireRole(socket, REG_ADMIN);
+        const who = socket.data.userId || socket.data.role || "admin";
+        const registration = setPaymentStatus(store, p.registrationId, p.paymentStatus, who);
+        io.to("admin").emit("admin-state", adminState(store));
+        return { admin: adminState(store), registration };
+      })
+    );
+
+    socket.on(
+      "reg-export",
+      wrap((p) => {
+        requireRole(socket, REG_ADMIN);
+        return { csv: exportCsv(store, p.formId) };
+      })
+    );
+
+    socket.on(
+      "reg-file-url",
+      wrap((p) => {
+        requireRole(socket, REG_ADMIN);
+        const { exp, sig } = signFileAccess(store, p.fileId);
+        return { url: `/api/registration/files/${p.fileId}?exp=${exp}&sig=${sig}` };
+      })
+    );
+
+    socket.on(
+      "reg-validate-form",
+      wrap((p) => {
+        requireRole(socket, REG_ADMIN);
+        const form = store.registrationForms.find((f) => f.id === p.formId) || getFormByTournament(store, p.tournamentId);
+        if (!form) throw new Error("Form not found");
+        return { errors: validateFormForOpen(form) };
       })
     );
   });

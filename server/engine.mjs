@@ -1,4 +1,5 @@
 import { acplCareerSummary } from "./acpl.mjs";
+import { registrationAdminState } from "./registration.mjs";
 
 export function nextIncrement(current, increments) {
   const sorted = [...(increments || [])].sort((a, b) => a.from - b.from);
@@ -320,7 +321,8 @@ export function adminState(store) {
         seasonsCount: p.seasonsCount,
         career: p.career
       }))
-    }
+    },
+    registration: registrationAdminState(store)
   };
 }
 

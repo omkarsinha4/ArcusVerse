@@ -1,8 +1,19 @@
 import { createServer } from "http";
 import next from "next";
 import { Server } from "socket.io";
-import { loadStore, advertiseUrls } from "./server/store.mjs";
+import fs from "fs";
+import { loadStore, advertiseUrls, saveStore, saveUpload } from "./server/store.mjs";
 import { attachSockets } from "./server/sockets.mjs";
+import { adminState } from "./server/engine.mjs";
+import {
+  getFormByToken,
+  publicFormPayload,
+  savePrivateUpload,
+  submitRegistration,
+  getPrivateFile,
+  verifyFileAccess,
+  PRIVATE_UPLOAD_DIR
+} from "./server/registration.mjs";
 
 const dev = process.env.NODE_ENV !== "production";
 const hostname = "0.0.0.0";
@@ -14,8 +25,165 @@ const handle = app.getRequestHandler();
 await app.prepare();
 
 const store = loadStore();
-const httpServer = createServer((req, res) => handle(req, res));
-const io = new Server(httpServer, {
+fs.mkdirSync(PRIVATE_UPLOAD_DIR, { recursive: true });
+
+/** @type {import("socket.io").Server | null} */
+let io = null;
+
+function readJson(req) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    req.on("data", (c) => chunks.push(c));
+    req.on("end", () => {
+      try {
+        const raw = Buffer.concat(chunks).toString("utf8");
+        resolve(raw ? JSON.parse(raw) : {});
+      } catch (e) {
+        reject(e);
+      }
+    });
+    req.on("error", reject);
+  });
+}
+
+function sendJson(res, status, body) {
+  const data = JSON.stringify(body);
+  res.writeHead(status, {
+    "Content-Type": "application/json",
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization"
+  });
+  res.end(data);
+}
+
+async function handleRegistrationApi(req, res) {
+  const url = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
+  const { pathname } = url;
+
+  if (req.method === "OPTIONS" && pathname.startsWith("/api/")) {
+    sendJson(res, 204, {});
+    return true;
+  }
+
+  // GET /api/public/register/:token
+  let m = pathname.match(/^\/api\/public\/register\/([^/]+)$/);
+  if (m && req.method === "GET") {
+    const form = getFormByToken(store, m[1]);
+    if (!form) {
+      sendJson(res, 404, { ok: false, error: "Not found" });
+      return true;
+    }
+    sendJson(res, 200, { ok: true, ...publicFormPayload(store, form) });
+    return true;
+  }
+
+  // POST /api/public/register/:token/upload
+  m = pathname.match(/^\/api\/public\/register\/([^/]+)\/upload$/);
+  if (m && req.method === "POST") {
+    try {
+      const form = getFormByToken(store, m[1]);
+      if (!form) {
+        sendJson(res, 404, { ok: false, error: "Not found" });
+        return true;
+      }
+      if (form.status !== "open") {
+        sendJson(res, 403, { ok: false, error: "Registration is not open" });
+        return true;
+      }
+      const body = await readJson(req);
+      const field = (form.fields || []).find((f) => f.key === body.fieldKey);
+      if (!field || field.enabled === false) {
+        sendJson(res, 400, { ok: false, error: "Unknown field" });
+        return true;
+      }
+      if (field.fieldType !== "file" && field.fieldType !== "image") {
+        sendJson(res, 400, { ok: false, error: "Not an upload field" });
+        return true;
+      }
+      const file = savePrivateUpload(store, {
+        dataUrl: body.dataUrl,
+        filename: body.filename || "upload",
+        fieldKey: body.fieldKey,
+        formId: form.id,
+        maxBytes: field.validation?.maxBytes || 5 * 1024 * 1024,
+        allowedMime: field.validation?.mime
+      });
+      saveStore(store);
+      sendJson(res, 200, { ok: true, fileId: file.id, mimeType: file.mimeType, fileSize: file.fileSize });
+    } catch (e) {
+      sendJson(res, 400, { ok: false, error: e.message });
+    }
+    return true;
+  }
+
+  // POST /api/public/register/:token
+  m = pathname.match(/^\/api\/public\/register\/([^/]+)$/);
+  if (m && req.method === "POST") {
+    try {
+      const body = await readJson(req);
+      const result = await submitRegistration(
+        store,
+        { token: m[1], values: body.values || {}, fileIds: body.fileIds || {} },
+        { saveUploadFn: saveUpload, performedBy: "public" }
+      );
+      saveStore(store);
+      io?.to("admin").emit("admin-state", adminState(store));
+      sendJson(res, 200, { ok: true, ...result });
+    } catch (e) {
+      const status = e.validation ? 422 : e.duplicate ? 409 : 400;
+      sendJson(res, status, {
+        ok: false,
+        error: e.message,
+        validation: e.validation || undefined,
+        duplicate: e.duplicate
+          ? { registrationId: e.duplicate.registrationId, status: e.duplicate.status }
+          : undefined
+      });
+    }
+    return true;
+  }
+
+  // GET /api/registration/files/:fileId?exp=&sig=
+  m = pathname.match(/^\/api\/registration\/files\/([^/]+)$/);
+  if (m && req.method === "GET") {
+    const fileId = m[1];
+    const exp = url.searchParams.get("exp");
+    const sig = url.searchParams.get("sig");
+    if (!verifyFileAccess(store, fileId, exp, sig)) {
+      sendJson(res, 403, { ok: false, error: "Forbidden" });
+      return true;
+    }
+    const row = getPrivateFile(store, fileId);
+    if (!row) {
+      sendJson(res, 404, { ok: false, error: "Not found" });
+      return true;
+    }
+    const buf = fs.readFileSync(row.abs);
+    res.writeHead(200, {
+      "Content-Type": row.file.mimeType || "application/octet-stream",
+      "Content-Length": buf.length,
+      "Content-Disposition": `inline; filename="${String(row.file.originalFilename || "file").replace(/"/g, "")}"`,
+      "Cache-Control": "private, no-store"
+    });
+    res.end(buf);
+    return true;
+  }
+
+  return false;
+}
+
+const httpServer = createServer(async (req, res) => {
+  try {
+    if (await handleRegistrationApi(req, res)) return;
+  } catch (e) {
+    sendJson(res, 500, { ok: false, error: e.message || "Server error" });
+    return;
+  }
+  return handle(req, res);
+});
+
+io = new Server(httpServer, {
   cors: { origin: true, credentials: true }
 });
 
