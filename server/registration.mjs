@@ -53,8 +53,85 @@ export function migrateRegistration(store) {
     while (taken.has(candidate.toLowerCase())) {
       candidate = `${publicSlug}-${n++}`.slice(0, 64);
     }
-    return { ...f, publicSlug: candidate };
+
+    // Ensure Email ID field exists on player section
+    let fields = [...(f.fields || [])];
+    if (!fields.some((x) => x.key === "email")) {
+      const mobileIdx = fields.findIndex((x) => x.key === "mobile");
+      const emailField = {
+        id: uid(),
+        key: "email",
+        sectionKey: "player",
+        label: "Email ID",
+        fieldType: "email",
+        required: true,
+        enabled: true,
+        displayOrder: 25,
+        placeholder: "you@example.com",
+        options: [],
+        validation: {},
+        config: {}
+      };
+      if (mobileIdx >= 0) fields.splice(mobileIdx + 1, 0, emailField);
+      else fields.push(emailField);
+    }
+
+    // Patch bowlingStyle rules: hide when player type is Batter
+    let rules = [...(f.rules || [])];
+    const bowlingRules = rules.filter((r) => r.targetKey === "bowlingStyle");
+    const hasBatterGuard = bowlingRules.some(
+      (r) => r.sourceKey === "playerType" && (r.operator === "notEquals" || r.value === "Bowler" || r.value === "All-rounder")
+    );
+    if (bowlingRules.length && !hasBatterGuard) {
+      rules = rules.filter((r) => r.targetKey !== "bowlingStyle");
+      rules.push(
+        {
+          id: uid(),
+          sourceKey: "firstTimeAcpl",
+          operator: "equals",
+          value: "Yes",
+          targetKey: "bowlingStyle",
+          action: "show",
+          makeRequired: true,
+          groupId: "bowling-bowler"
+        },
+        {
+          id: uid(),
+          sourceKey: "playerType",
+          operator: "equals",
+          value: "Bowler",
+          targetKey: "bowlingStyle",
+          action: "show",
+          makeRequired: true,
+          groupId: "bowling-bowler"
+        },
+        {
+          id: uid(),
+          sourceKey: "firstTimeAcpl",
+          operator: "equals",
+          value: "Yes",
+          targetKey: "bowlingStyle",
+          action: "show",
+          makeRequired: true,
+          groupId: "bowling-ar"
+        },
+        {
+          id: uid(),
+          sourceKey: "playerType",
+          operator: "equals",
+          value: "All-rounder",
+          targetKey: "bowlingStyle",
+          action: "show",
+          makeRequired: true,
+          groupId: "bowling-ar"
+        }
+      );
+    }
+
+    return { ...f, publicSlug: candidate, fields, rules };
   });
+
+  dedupePlayersByName(store);
   return store;
 }
 
@@ -305,7 +382,7 @@ export function parseFormDateTime(value) {
   return new Date(raw).getTime();
 }
 
-function formIsAccepting(form, now = Date.now()) {
+export function formIsAccepting(form, now = Date.now()) {
   if (form.status !== "open") {
     if (form.status === "draft") {
       return { ok: false, reason: "draft", message: "Registration for this tournament is currently closed." };
@@ -515,6 +592,15 @@ function mapRoleFromValues(values) {
   return "Player";
 }
 
+function normalizePlayerNameKey(name) {
+  return String(name || "")
+    .normalize("NFKC")
+    .replace(/[\u200B-\u200D\uFEFF]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
 function resolveCategoryId(store, categoryLabel) {
   const label = String(categoryLabel || "").toLowerCase().replace(/['’]/g, "");
   const found = (store.categories || []).find((c) => {
@@ -526,42 +612,29 @@ function resolveCategoryId(store, categoryLabel) {
   return found?.id || store.categories[0]?.id;
 }
 
+/**
+ * Find existing player by phone or normalized name.
+ * Name match reuses the existing entry (photo-only update); never creates a duplicate.
+ */
 function findOrCreatePlayer(store, form, values, fileMeta, { attachToTournament = false, linkAcpl = false } = {}) {
   const phone = normalizePhone(values.mobile);
   const name = String(values.playerName || "").trim();
+  const nameKey = normalizePlayerNameKey(name);
+
   let player =
-    (store.players || []).find((p) => phone && normalizePhone(p.phone) === phone) ||
-    (store.players || []).find(
-      (p) => name && String(p.name || "").toLowerCase() === name.toLowerCase() && normalizePhone(p.phone) === phone
-    );
+    (nameKey && (store.players || []).find((p) => normalizePlayerNameKey(p.name) === nameKey)) ||
+    (phone && (store.players || []).find((p) => normalizePhone(p.phone) === phone)) ||
+    null;
 
   const categoryId = resolveCategoryId(store, values.category);
   const tournament = store.tournaments.find((t) => t.id === form.tournamentId);
   const photoUrl = fileMeta?.publicPhotoUrl || "";
 
   if (player) {
-    player.name = name || player.name;
-    player.role = mapRoleFromValues(values) || player.role;
-    player.categoryId = categoryId || player.categoryId;
-    player.sport = tournament?.sport || player.sport || "Cricket";
-    if (phone) player.phone = phone;
-    if (form.photoPolicy === "keepExisting") {
-      if (!player.photo && photoUrl) player.photo = photoUrl;
-    } else if (photoUrl) {
-      player.photo = photoUrl;
-    }
-    // Keep registration extras for admin/auction
-    player.registrationMeta = {
-      ...(player.registrationMeta || {}),
-      category: values.category || "",
-      dob: values.dob || "",
-      jerseyName: values.jerseyName || values.jersey || "",
-      jerseyNumber: values.jerseyNumber || "",
-      playerType: values.playerType || "",
-      battingHand: values.battingHand || "",
-      bowlingHand: values.bowlingHand || "",
-      auctionTeam: values.auctionTeam || ""
-    };
+    // Existing player: only refresh photo from registration (latest upload wins)
+    if (photoUrl) player.photo = photoUrl;
+    if (phone && !player.phone) player.phone = phone;
+    // Keep name casing from the first/canonical player entry
   } else {
     player = {
       id: uid(),
@@ -570,8 +643,9 @@ function findOrCreatePlayer(store, form, values, fileMeta, { attachToTournament 
       role: mapRoleFromValues(values),
       categoryId,
       sport: tournament?.sport || "Cricket",
-      basePrice: 100,
-      phone,
+      // No default base price — admin sets it later
+      basePrice: null,
+      phone: phone || "",
       teamId: null,
       assignment: "auction",
       tournamentIds: [],
@@ -602,6 +676,131 @@ function findOrCreatePlayer(store, form, values, fileMeta, { attachToTournament 
   }
 
   return player;
+}
+
+/** Merge duplicate players that share the same normalized name (keep oldest / richest). */
+export function dedupePlayersByName(store) {
+  ensureCollections(store);
+  const byName = new Map();
+  const removeIds = new Set();
+  for (const p of store.players || []) {
+    const key = normalizePlayerNameKey(p.name);
+    if (!key) continue;
+    if (!byName.has(key)) {
+      byName.set(key, p);
+      continue;
+    }
+    const keep = byName.get(key);
+    const drop = p;
+    // Prefer entry that already has base price / more tournament links
+    const keepScore =
+      (Number.isFinite(Number(keep.basePrice)) ? 2 : 0) + (keep.tournamentIds?.length || 0) + (keep.photo ? 1 : 0);
+    const dropScore =
+      (Number.isFinite(Number(drop.basePrice)) ? 2 : 0) + (drop.tournamentIds?.length || 0) + (drop.photo ? 1 : 0);
+    let winner = keep;
+    let loser = drop;
+    if (dropScore > keepScore) {
+      winner = drop;
+      loser = keep;
+      byName.set(key, winner);
+    }
+    // Merge useful fields onto winner — prefer later entry's photo (registration upload)
+    if (drop.photo) winner.photo = drop.photo;
+    else if (loser.photo && !winner.photo) winner.photo = loser.photo;
+    if (loser.phone && !winner.phone) winner.phone = loser.phone;
+    if (keep.phone && !winner.phone) winner.phone = keep.phone;
+    if (loser.acplPlayerId && !winner.acplPlayerId) {
+      winner.acplPlayerId = loser.acplPlayerId;
+      winner.acplName = loser.acplName;
+    }
+    if (keep.acplPlayerId && !winner.acplPlayerId) {
+      winner.acplPlayerId = keep.acplPlayerId;
+      winner.acplName = keep.acplName;
+    }
+    if (Number.isFinite(Number(loser.basePrice)) && !Number.isFinite(Number(winner.basePrice))) {
+      winner.basePrice = loser.basePrice;
+    }
+    // Never invent a base price during dedupe of registration duplicates with null
+    winner.tournamentIds = [...new Set([...(winner.tournamentIds || []), ...(loser.tournamentIds || []), ...(keep.tournamentIds || [])])];
+    if (loser.registrationMeta && !winner.registrationMeta) winner.registrationMeta = loser.registrationMeta;
+    removeIds.add(loser.id);
+    // Retarget registrations / tournament playerIds
+    for (const r of store.registrations || []) {
+      if (r.playerId === loser.id) r.playerId = winner.id;
+    }
+    for (const t of store.tournaments || []) {
+      if (!Array.isArray(t.playerIds)) continue;
+      t.playerIds = t.playerIds.map((id) => (id === loser.id ? winner.id : id));
+      t.playerIds = [...new Set(t.playerIds)];
+    }
+    for (const team of store.teams || []) {
+      if (!Array.isArray(team.playerIds)) continue;
+      team.playerIds = [...new Set(team.playerIds.map((id) => (id === loser.id ? winner.id : id)))];
+    }
+  }
+  if (removeIds.size) {
+    store.players = store.players.filter((p) => !removeIds.has(p.id));
+  }
+  return removeIds.size;
+}
+
+/**
+ * Merge absorbPlayer into keepPlayer (auction roster), then delete absorb.
+ * Used when registration created a duplicate of an existing player.
+ */
+export function mergeAuctionPlayers(store, keepPlayerId, absorbPlayerId) {
+  ensureCollections(store);
+  if (!keepPlayerId || !absorbPlayerId || keepPlayerId === absorbPlayerId) {
+    throw new Error("Select two different players to merge");
+  }
+  const keep = store.players.find((p) => p.id === keepPlayerId);
+  const absorb = store.players.find((p) => p.id === absorbPlayerId);
+  if (!keep || !absorb) throw new Error("Player not found");
+
+  if (absorb.photo) keep.photo = absorb.photo;
+  if (absorb.phone && !keep.phone) keep.phone = absorb.phone;
+  if (absorb.acplPlayerId) {
+    keep.acplPlayerId = absorb.acplPlayerId;
+    keep.acplName = absorb.acplName || keep.acplName;
+  }
+  if (Number.isFinite(Number(absorb.basePrice)) && !Number.isFinite(Number(keep.basePrice))) {
+    keep.basePrice = absorb.basePrice;
+  }
+  if (absorb.role && (!keep.role || keep.role === "Player")) keep.role = absorb.role;
+  keep.tournamentIds = [...new Set([...(keep.tournamentIds || []), ...(absorb.tournamentIds || [])])];
+  if (absorb.registrationMeta) {
+    keep.registrationMeta = { ...(keep.registrationMeta || {}), ...absorb.registrationMeta };
+  }
+
+  for (const r of store.registrations || []) {
+    if (r.playerId === absorb.id) r.playerId = keep.id;
+  }
+  for (const t of store.tournaments || []) {
+    if (!Array.isArray(t.playerIds)) continue;
+    t.playerIds = [...new Set(t.playerIds.map((id) => (id === absorb.id ? keep.id : id)))];
+  }
+  for (const team of store.teams || []) {
+    if (!Array.isArray(team.playerIds)) continue;
+    team.playerIds = [...new Set(team.playerIds.map((id) => (id === absorb.id ? keep.id : id)))];
+  }
+  store.players = store.players.filter((p) => p.id !== absorb.id);
+  return keep;
+}
+
+/** Link an auction player to an ACPL history record (by id or exact name). */
+export function linkPlayerToAcpl(store, playerId, acplIdOrName) {
+  ensureCollections(store);
+  const player = store.players.find((p) => p.id === playerId);
+  if (!player) throw new Error("Player not found");
+  const match = findAcplPlayer(store, acplIdOrName);
+  if (!match) throw new Error("No matching ACPL stats player found");
+  player.acplPlayerId = match.id;
+  player.acplName = match.name;
+  // Optionally align display name to ACPL canonical spelling
+  if (normalizePlayerNameKey(player.name) === normalizePlayerNameKey(match.name)) {
+    player.name = match.name;
+  }
+  return { player, acpl: match };
 }
 
 /** Match ACPL stats by player name and store link for auction UI. */
@@ -919,8 +1118,8 @@ export function materializePlayerPhoto(store, file, saveUploadFn) {
   return saveUploadFn(dataUrl, file.originalFilename || "photo.jpg");
 }
 
-export async function submitRegistration(store, { token, values, fileIds }, { saveUploadFn, performedBy } = {}) {
-  return withRegLock(() => {
+export async function submitRegistration(store, { token, values, fileIds }, { saveUploadFn, performedBy, appUrl, sendEmail = true } = {}) {
+  const result = await withRegLock(() => {
     ensureCollections(store);
     const form = getFormByToken(store, token);
     if (!form) throw new Error("Registration form not found");
@@ -1026,6 +1225,8 @@ export async function submitRegistration(store, { token, values, fileIds }, { sa
     }
 
     return {
+      form,
+      registrationFull: registration,
       registration: {
         registrationId: registration.registrationId,
         sequence: registration.sequence,
@@ -1034,10 +1235,27 @@ export async function submitRegistration(store, { token, values, fileIds }, { sa
         registeredAt: registration.registeredAt,
         status: registration.status,
         waitingPosition: registration.waitingPosition,
-        tournamentName: store.tournaments.find((t) => t.id === form.tournamentId)?.name || ""
+        tournamentName: store.tournaments.find((t) => t.id === form.tournamentId)?.name || "",
+        email: cleanValues.email || ""
       }
     };
   });
+
+  if (sendEmail) {
+    try {
+      const { sendRegistrationEmails } = await import("./email.mjs");
+      await sendRegistrationEmails({
+        store,
+        form: result.form,
+        registration: result.registrationFull,
+        appUrl: appUrl || process.env.PUBLIC_URL || ""
+      });
+    } catch (e) {
+      console.error("[email] registration notify failed", e.message);
+    }
+  }
+
+  return { registration: result.registration };
 }
 
 export function promoteNextWaiting(store, form, category, performedBy, { saveUploadFn } = {}) {
@@ -1196,11 +1414,32 @@ export function dashboardForForm(store, formId) {
   const registered = byStatus.registered || 0;
   const waiting = byStatus.waiting || 0;
   const capacity = Number(form.capacity) || 0;
+  const availableSlotsByCategory = {};
+  const catOptions =
+    (form.fields || []).find((f) => f.key === "category")?.options ||
+    Object.keys(form.categoryCapacity || {}) ||
+    [];
+  const cats = new Set([...catOptions, ...Object.keys(byCategory)]);
+  for (const cat of cats) {
+    if (!cat || cat === "—") continue;
+    const registeredInCat = (store.registrations || []).filter(
+      (r) => r.formId === formId && r.status === "registered" && categoryKey(r.values) === cat
+    ).length;
+    const cap = form.useCategoryCapacity
+      ? Number(form.categoryCapacity?.[cat]) || 0
+      : capacity;
+    availableSlotsByCategory[cat] = {
+      registered: registeredInCat,
+      capacity: cap,
+      available: cap > 0 ? Math.max(0, cap - registeredInCat) : null
+    };
+  }
   return {
     total: regs.length,
     registered,
     waiting,
     availableSlots: Math.max(0, capacity - registered),
+    availableSlotsByCategory,
     today: regs.filter((r) => r.registeredAt >= todayStart.getTime()).length,
     byCategory,
     byStatus,

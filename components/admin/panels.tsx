@@ -252,12 +252,19 @@ export function PlayersPanel({ admin, emit }: any) {
   };
   const [form, setForm] = useState(blank);
   const [acplPreview, setAcplPreview] = useState<any>(null);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [bulkRole, setBulkRole] = useState("");
+  const [bulkBaseCr, setBulkBaseCr] = useState("");
+  const [mergeAbsorbId, setMergeAbsorbId] = useState("");
+  const [acplLinkQuery, setAcplLinkQuery] = useState("");
+  const [msg, setMsg] = useState("");
   const { setSport } = useApp();
   const sameSport = (x: any) => String(x.sport || "Cricket").toLowerCase() === String(form.sport || "Cricket").toLowerCase();
   const isCricket = String(form.sport || "Cricket").toLowerCase() === "cricket";
   const teams = admin.teams.filter((t: any) => t.categoryId === form.categoryId && sameSport(t));
   const sportTournaments = admin.tournaments.filter((t: any) => sameSport(t));
   const listedPlayers = admin.players.filter((p: any) => sameSport(p));
+  const acplPlayers = admin.acplHistory?.players || [];
 
   useEffect(() => {
     setSport(form.sport || "Cricket");
@@ -297,6 +304,54 @@ export function PlayersPanel({ admin, emit }: any) {
         ? form.tournamentIds.filter((x) => x !== id)
         : [...form.tournamentIds, id]
     });
+
+  const toggleSelect = (id: string) =>
+    setSelectedIds((ids) => (ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]));
+
+  const applyBulk = async () => {
+    try {
+      setMsg("");
+      const payload: any = { playerIds: selectedIds };
+      if (bulkRole) payload.role = bulkRole;
+      if (bulkBaseCr !== "") payload.basePrice = crToLakhs(bulkBaseCr);
+      const res: any = await emit("bulk-update-players", payload);
+      setMsg(`Updated ${res.updated || selectedIds.length} player(s).`);
+      setSelectedIds([]);
+      setBulkRole("");
+      setBulkBaseCr("");
+    } catch (e: any) {
+      setMsg(e.message || "Bulk update failed");
+    }
+  };
+
+  const mergeIntoSelected = async () => {
+    if (!form.id || !mergeAbsorbId) return;
+    if (!confirm("Merge the other player into this one? The other entry will be removed.")) return;
+    try {
+      setMsg("");
+      await emit("merge-players", { keepPlayerId: form.id, absorbPlayerId: mergeAbsorbId });
+      setMergeAbsorbId("");
+      setMsg("Players merged.");
+      setForm(blank);
+    } catch (e: any) {
+      setMsg(e.message || "Merge failed");
+    }
+  };
+
+  const linkAcpl = async () => {
+    if (!form.id || !acplLinkQuery.trim()) return;
+    try {
+      setMsg("");
+      const res: any = await emit("link-player-acpl", { playerId: form.id, acplName: acplLinkQuery.trim() });
+      setAcplPreview(res.summary);
+      setMsg(`Linked ACPL stats: ${res.acpl?.name || acplLinkQuery}`);
+      if (res.player) {
+        setForm((f) => ({ ...f, name: res.player.name || f.name }));
+      }
+    } catch (e: any) {
+      setMsg(e.message || "ACPL link failed");
+    }
+  };
 
   return (
     <div className="space-y-4">
@@ -349,7 +404,7 @@ export function PlayersPanel({ admin, emit }: any) {
           label="Base price (crores)"
           value={form.basePriceCr}
           onChange={(e) => setForm({ ...form, basePriceCr: e.target.value })}
-          placeholder="e.g. 2"
+          placeholder="Leave blank until set"
         />
         <div className="md:col-span-3">
           <p className="mb-3 text-sm font-bold uppercase tracking-wider" style={{ color: "var(--muted)" }}>
@@ -429,17 +484,78 @@ export function PlayersPanel({ admin, emit }: any) {
             variant="turf"
             onClick={() => {
               if (form.assignment === "team" && !form.teamId) return;
-              emit("upsert-player", {
+              const payload: any = {
                 ...form,
-                role: isCricket ? form.role : "Player",
-                basePrice: crToLakhs(form.basePriceCr)
-              });
+                role: isCricket ? form.role : "Player"
+              };
+              if (form.basePriceCr === "" || form.basePriceCr == null) {
+                if (!form.id) payload.basePrice = null;
+                else delete payload.basePrice;
+              } else {
+                payload.basePrice = crToLakhs(form.basePriceCr);
+              }
+              emit("upsert-player", payload);
               setForm({ ...blank, categoryId: form.categoryId, sport: form.sport, role: isCricket ? "Batsman" : "Player" });
             }}
           >
             {form.id ? "Save player" : "Add player"}
           </Button>
         </div>
+        {form.id ? (
+          <div className="md:col-span-3 space-y-3 rounded-xl p-3" style={{ background: "color-mix(in srgb, var(--accent) 8%, transparent)" }}>
+            <p className="text-xs font-bold uppercase tracking-wider" style={{ color: "var(--muted)" }}>
+              Merge / ACPL link
+            </p>
+            <div className="grid gap-3 md:grid-cols-2">
+              <Select label="Merge another player into this one" value={mergeAbsorbId} onChange={(e) => setMergeAbsorbId(e.target.value)}>
+                <option value="">Select duplicate to absorb…</option>
+                {listedPlayers
+                  .filter((p: any) => p.id !== form.id)
+                  .map((p: any) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                      {p.acplPlayerId ? " (has ACPL)" : ""}
+                    </option>
+                  ))}
+              </Select>
+              <div className="flex items-end">
+                <Button disabled={!mergeAbsorbId} onClick={mergeIntoSelected}>
+                  Merge into this player
+                </Button>
+              </div>
+              <Field
+                label="Link ACPL stats (name or pick)"
+                value={acplLinkQuery}
+                onChange={(e) => setAcplLinkQuery(e.target.value)}
+                placeholder="Type ACPL player name"
+                list="acpl-player-names"
+              />
+              <datalist id="acpl-player-names">
+                {acplPlayers.slice(0, 500).map((p: any) => (
+                  <option key={p.id} value={p.name} />
+                ))}
+              </datalist>
+              <div className="flex items-end gap-2">
+                <Button disabled={!acplLinkQuery.trim()} onClick={linkAcpl}>
+                  Link ACPL stats
+                </Button>
+                <Button
+                  onClick={async () => {
+                    const res: any = await emit("dedupe-players");
+                    setMsg(`Removed ${res.removed || 0} duplicate name(s).`);
+                  }}
+                >
+                  Dedupe same names
+                </Button>
+              </div>
+            </div>
+          </div>
+        ) : null}
+        {msg ? (
+          <p className="md:col-span-3 text-sm" style={{ color: "var(--turf)" }}>
+            {msg}
+          </p>
+        ) : null}
         <label className="text-xs md:col-span-3" style={{ color: "var(--muted)" }}>
           Bulk CSV: Name, Role, Sport, Category, Base Price (Cr), Team, Tournament, Photo URL
           <input
@@ -457,10 +573,44 @@ export function PlayersPanel({ admin, emit }: any) {
           </a>
         </label>
       </Card>
+
+      <Card className="space-y-3">
+        <h3 className="font-display text-2xl">Bulk update selected</h3>
+        <p className="text-xs" style={{ color: "var(--muted)" }}>
+          Select players in the table below, then apply playing type and/or base price.
+        </p>
+        <div className="grid gap-3 md:grid-cols-4">
+          {isCricket ? (
+            <Select label="Playing type" value={bulkRole} onChange={(e) => setBulkRole(e.target.value)}>
+              <option value="">No change</option>
+              {ROLES.map((r) => (
+                <option key={r} value={r}>
+                  {r}
+                </option>
+              ))}
+            </Select>
+          ) : null}
+          <Field
+            label="Base price (crores)"
+            value={bulkBaseCr}
+            onChange={(e) => setBulkBaseCr(e.target.value)}
+            placeholder="No change"
+          />
+          <div className="flex items-end gap-2 md:col-span-2">
+            <Button disabled={!selectedIds.length || (!bulkRole && bulkBaseCr === "")} variant="turf" onClick={applyBulk}>
+              Apply to {selectedIds.length || 0} selected
+            </Button>
+            <Button onClick={() => setSelectedIds(listedPlayers.map((p: any) => p.id))}>Select all</Button>
+            <Button onClick={() => setSelectedIds([])}>Clear</Button>
+          </div>
+        </div>
+      </Card>
+
       <div className="neu overflow-auto">
         <table className="w-full text-sm">
           <thead style={{ color: "var(--muted)" }}>
             <tr>
+              <th className="px-3 py-3 text-left"> </th>
               {(isCricket
                 ? ["Name", "Sport", "Type", "Category", "Base", "Team", "Tournaments", ""]
                 : ["Name", "Sport", "Category", "Base", "Team", "Tournaments", ""]
@@ -474,6 +624,9 @@ export function PlayersPanel({ admin, emit }: any) {
           <tbody>
             {listedPlayers.map((p: any) => (
               <tr key={p.id} className="border-t border-black/5">
+                <td className="px-3 py-2">
+                  <input type="checkbox" checked={selectedIds.includes(p.id)} onChange={() => toggleSelect(p.id)} />
+                </td>
                 <td className="px-4 py-2">
                   <div className="flex flex-wrap items-center gap-2">
                     <button
@@ -484,7 +637,8 @@ export function PlayersPanel({ admin, emit }: any) {
                           ...p,
                           sport: p.sport || "Cricket",
                           role: p.role || (String(p.sport || "").toLowerCase() === "cricket" ? "Batsman" : "Player"),
-                          basePriceCr: String(lakhsToCr(p.basePrice)),
+                          basePriceCr:
+                            p.basePrice == null || p.basePrice === "" ? "" : String(lakhsToCr(p.basePrice)),
                           assignment: p.assignment || (p.teamId ? "team" : "auction"),
                           tournamentIds: p.tournamentIds || []
                         })
@@ -495,6 +649,11 @@ export function PlayersPanel({ admin, emit }: any) {
                     <Link href={`/admin/players/${p.id}`} className="text-xs underline" style={{ color: "var(--muted)" }}>
                       details
                     </Link>
+                    {p.acplPlayerId ? (
+                      <span className="text-[10px] font-bold uppercase" style={{ color: "var(--turf)" }}>
+                        ACPL
+                      </span>
+                    ) : null}
                   </div>
                 </td>
                 <td className="px-4 py-2">{p.sport || "Cricket"}</td>
@@ -521,7 +680,7 @@ export function PlayersPanel({ admin, emit }: any) {
             ))}
             {!listedPlayers.length && (
               <tr>
-                <td colSpan={isCricket ? 8 : 7} className="px-4 py-8 text-center" style={{ color: "var(--muted)" }}>
+                <td colSpan={isCricket ? 9 : 8} className="px-4 py-8 text-center" style={{ color: "var(--muted)" }}>
                   No {form.sport} players yet.
                 </td>
               </tr>

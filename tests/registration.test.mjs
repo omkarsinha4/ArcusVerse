@@ -149,6 +149,7 @@ test("hidden required fields are not validated", () => {
   const values = {
     playerName: "Test Player",
     mobile: "9876543210",
+    email: "test@example.com",
     dob: "2000-01-01",
     category: "Men's",
     jerseySize: "40",
@@ -181,6 +182,7 @@ function baseValues(i) {
   return {
     playerName: `Player ${i}`,
     mobile: `90000000${String(i).padStart(2, "0")}`.slice(0, 10),
+    email: `player${i}@example.com`,
     dob: "1995-05-05",
     category: "Men's",
     jerseySize: "42",
@@ -225,7 +227,7 @@ test("waiting list: capacity 5 then promote after cancel", async () => {
       const out = await submitRegistration(
         store,
         { token: form.publicToken, values: baseValues(i), fileIds: { playerPhoto: photo.id } },
-        { saveUploadFn: () => `/uploads/fake-${i}.png` }
+        { saveUploadFn: () => `/uploads/fake-${i}.png`, sendEmail: false }
       );
       results.push(out.registration);
       // ensure distinct timestamps for ordering
@@ -286,7 +288,7 @@ test("per-category registration numbers and renumber on demote/delete", async ()
         values: { ...baseValues(i), category, mobile: `9${String(100000000 + i).slice(0, 9)}` },
         fileIds: { playerPhoto: photo.id }
       },
-      { saveUploadFn: () => `/uploads/x.png` }
+      { saveUploadFn: () => `/uploads/x.png`, sendEmail: false }
     );
     await new Promise((r) => setTimeout(r, 2));
     return out.registration;
@@ -365,7 +367,7 @@ test("promote/verify attaches player to tournament and links ACPL by name", asyn
   const out = await submitRegistration(
     store,
     { token: form.publicToken, values: baseValues(1), fileIds: { playerPhoto: photo.id } },
-    { saveUploadFn: () => `/uploads/p.png` }
+    { saveUploadFn: () => `/uploads/p.png`, sendEmail: false }
   );
   assert.equal(out.registration.status, "registered");
   const tour = store.tournaments[0];
@@ -399,7 +401,7 @@ test("concurrent submissions never overflow capacity", async () => {
       submitRegistration(
         store,
         { token: form.publicToken, values: baseValues(i + 20), fileIds: { playerPhoto: photo.id } },
-        { saveUploadFn: () => `/uploads/x.png` }
+        { saveUploadFn: () => `/uploads/x.png`, sendEmail: false }
       )
     );
   }
