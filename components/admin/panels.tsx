@@ -137,9 +137,12 @@ export function TournamentsPanel({ admin, emit }: any) {
         <div>
           <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
             <p className="text-sm font-bold uppercase tracking-wider" style={{ color: "var(--muted)" }}>
-              Players in this tournament ({form.sport} · {catName})
+              Players in this tournament ({form.playerIds.length} selected · {form.sport} · {catName})
             </p>
-            <Button onClick={() => setForm({ ...form, playerIds: catPlayers.map((p: any) => p.id) })}>Select all players</Button>
+            <div className="flex flex-wrap gap-2">
+              <Button onClick={() => setForm({ ...form, playerIds: [] })}>Clear players</Button>
+              <Button onClick={() => setForm({ ...form, playerIds: catPlayers.map((p: any) => p.id) })}>Select all players</Button>
+            </div>
           </div>
           <div className="grid max-h-72 gap-3 overflow-auto sm:grid-cols-2">
             {catPlayers.map((p: any) => (
@@ -151,7 +154,7 @@ export function TournamentsPanel({ admin, emit }: any) {
               >
                 <p className="font-display text-xl leading-tight break-words sm:text-2xl">{p.name}</p>
                 <p className="text-sm" style={{ color: "var(--muted)" }}>
-                  {p.sport || "Cricket"} · {p.role} · {inr(p.basePrice)}
+                  {p.sport || "Cricket"} · {p.role} · {inr(p.basePrice)} · {form.playerIds.includes(p.id) ? "Selected" : "Tap to add"}
                 </p>
               </button>
             ))}
@@ -164,19 +167,21 @@ export function TournamentsPanel({ admin, emit }: any) {
           <Button
             variant="turf"
             onClick={() =>
-              emit("upsert-tournament", form).then((res: any) => {
-                const saved = res.tournament;
-                if (saved) {
-                  setForm({
-                    ...blank,
-                    ...saved,
-                    logo: saved.logo || form.logo || "",
-                    categoryId: saved.categoryId || form.categoryId,
-                    teamIds: saved.teamIds || [],
-                    playerIds: Array.isArray(saved.playerIds) ? saved.playerIds : form.playerIds
-                  });
-                }
-              })
+              emit("upsert-tournament", form)
+                .then((res: any) => {
+                  const saved = res.tournament;
+                  if (saved) {
+                    setForm({
+                      ...blank,
+                      ...saved,
+                      logo: saved.logo || form.logo || "",
+                      categoryId: saved.categoryId || form.categoryId,
+                      teamIds: Array.isArray(saved.teamIds) ? saved.teamIds : [],
+                      playerIds: Array.isArray(saved.playerIds) ? saved.playerIds : []
+                    });
+                  }
+                })
+                .catch((e: any) => alert(e.message || "Save failed — try again"))
             }
           >
             Save
@@ -218,8 +223,7 @@ export function TournamentsPanel({ admin, emit }: any) {
                   {t.endDate} · Auction {t.hasAuction ? "Yes" : "No"}
                 </p>
                 <p className="mt-1 text-sm">
-                  {(t.teamIds || []).length} teams ·{" "}
-                  {admin.players.filter((p: any) => (p.tournamentIds || []).includes(t.id)).length} players
+                  {(t.teamIds || []).length} teams · {(Array.isArray(t.playerIds) ? t.playerIds : []).length} players
                 </p>
               </div>
             </button>
@@ -635,9 +639,9 @@ export function TeamsPanel({ admin, emit }: any) {
                     ...blank,
                     ...t,
                     sport: t.sport || "Cricket",
-                    playerIds:
-                      t.playerIds ||
-                      admin.players.filter((p: any) => p.teamId === t.id && p.assignment === "team").map((p: any) => p.id)
+                    playerIds: Array.isArray(t.playerIds)
+                      ? t.playerIds
+                      : admin.players.filter((p: any) => p.teamId === t.id && p.assignment === "team").map((p: any) => p.id)
                   })
                 }
               >
