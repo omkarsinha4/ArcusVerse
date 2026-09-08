@@ -388,6 +388,7 @@ export function attachSockets(io, store, urls) {
         const body = {
           name: p.name || "New tournament",
           sport: p.sport || "Cricket",
+          logo: p.logo || "",
           startDate: p.startDate || "",
           endDate: p.endDate || "",
           venue: p.venue || "",

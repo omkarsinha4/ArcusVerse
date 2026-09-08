@@ -326,13 +326,18 @@ export default function OwnerPage() {
               </p>
             )}
             {tournaments.map((t: any) => (
-              <div key={t.id} className="neu-sm space-y-1 px-4 py-3">
-                <p className="font-display text-2xl">{t.name}</p>
-                <p className="text-sm" style={{ color: "var(--muted)" }}>
-                  {t.sport} · {t.categoryName} · {t.venue || "Venue TBD"}
-                  {t.startDate ? ` · ${t.startDate}` : ""}
-                  {t.endDate ? ` → ${t.endDate}` : ""}
-                </p>
+              <div key={t.id} className="neu-sm flex items-start gap-3 px-4 py-3">
+                {t.logo ? (
+                  <img src={t.logo} alt="" className="h-12 w-12 shrink-0 rounded-xl object-cover" />
+                ) : null}
+                <div className="min-w-0 space-y-1">
+                  <p className="font-display text-2xl">{t.name}</p>
+                  <p className="text-sm" style={{ color: "var(--muted)" }}>
+                    {t.sport} · {t.categoryName} · {t.venue || "Venue TBD"}
+                    {t.startDate ? ` · ${t.startDate}` : ""}
+                    {t.endDate ? ` → ${t.endDate}` : ""}
+                  </p>
+                </div>
               </div>
             ))}
           </Card>

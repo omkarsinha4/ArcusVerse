@@ -15,6 +15,7 @@ export function TournamentsPanel({ admin, emit }: any) {
     id: "",
     name: "",
     sport: "Cricket",
+    logo: "",
     startDate: "",
     endDate: "",
     venue: "",
@@ -68,6 +69,19 @@ export function TournamentsPanel({ admin, emit }: any) {
             </option>
           ))}
         </Select>
+        <FilePick
+          label="Tournament logo"
+          onData={async (dataUrl, file) => {
+            const res: any = await emit("upload", { dataUrl, filename: file.name });
+            setForm((f) => ({ ...f, logo: res.url }));
+          }}
+        />
+        {form.logo ? (
+          <div className="flex items-center gap-3">
+            <img src={form.logo} alt="" className="h-14 w-14 rounded-xl object-cover" />
+            <Button onClick={() => setForm({ ...form, logo: "" })}>Remove logo</Button>
+          </div>
+        ) : null}
         <Field label="Start date" type="date" value={form.startDate} onChange={(e) => setForm({ ...form, startDate: e.target.value })} />
         <Field label="End date" type="date" value={form.endDate} onChange={(e) => setForm({ ...form, endDate: e.target.value })} />
         <Field label="Venue" value={form.venue} onChange={(e) => setForm({ ...form, venue: e.target.value })} />
@@ -146,26 +160,39 @@ export function TournamentsPanel({ admin, emit }: any) {
         {admin.tournaments.map((t: any) => (
           <Card key={t.id} className="flex min-h-[140px] items-start justify-between gap-3">
             <button
-              className="text-left"
+              className="flex min-w-0 flex-1 items-start gap-3 text-left"
               onClick={() =>
                 setForm({
                   ...blank,
                   ...t,
+                  logo: t.logo || "",
                   categoryId: t.categoryId || admin.categories[0]?.id,
                   teamIds: t.teamIds || [],
                   playerIds: admin.players.filter((p: any) => (p.tournamentIds || []).includes(t.id)).map((p: any) => p.id)
                 })
               }
             >
-              <h3 className="font-display text-4xl">{t.name}</h3>
-              <p className="mt-1 text-base" style={{ color: "var(--muted)" }}>
-                {t.sport} · {admin.categories.find((c: any) => c.id === t.categoryId)?.name || "—"} · {t.venue} · {t.startDate} →{" "}
-                {t.endDate} · Auction {t.hasAuction ? "Yes" : "No"}
-              </p>
-              <p className="mt-1 text-sm">
-                {(t.teamIds || []).length} teams ·{" "}
-                {admin.players.filter((p: any) => (p.tournamentIds || []).includes(t.id)).length} players
-              </p>
+              {t.logo ? (
+                <img src={t.logo} alt="" className="h-16 w-16 shrink-0 rounded-xl object-cover" />
+              ) : (
+                <div
+                  className="flex h-16 w-16 shrink-0 items-center justify-center rounded-xl text-xl font-bold"
+                  style={{ background: "color-mix(in srgb, var(--accent) 18%, transparent)", color: "var(--accent)" }}
+                >
+                  {(t.name || "?").slice(0, 1)}
+                </div>
+              )}
+              <div className="min-w-0">
+                <h3 className="font-display text-4xl">{t.name}</h3>
+                <p className="mt-1 text-base" style={{ color: "var(--muted)" }}>
+                  {t.sport} · {admin.categories.find((c: any) => c.id === t.categoryId)?.name || "—"} · {t.venue} · {t.startDate} →{" "}
+                  {t.endDate} · Auction {t.hasAuction ? "Yes" : "No"}
+                </p>
+                <p className="mt-1 text-sm">
+                  {(t.teamIds || []).length} teams ·{" "}
+                  {admin.players.filter((p: any) => (p.tournamentIds || []).includes(t.id)).length} players
+                </p>
+              </div>
             </button>
             <Button variant="danger" onClick={() => emit("delete-tournament", { id: t.id })}>
               Delete

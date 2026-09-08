@@ -379,6 +379,7 @@ export function ownerHome(store, teamId) {
       id: t.id,
       name: t.name,
       sport: t.sport || "Cricket",
+      logo: t.logo || "",
       venue: t.venue || "",
       startDate: t.startDate || "",
       endDate: t.endDate || "",

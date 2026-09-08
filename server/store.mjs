@@ -173,6 +173,7 @@ export function emptySeed() {
     id: uid(),
     name: "ACPL Season 1",
     sport: "Cricket",
+    logo: "",
     startDate: "2026-08-22",
     endDate: "2026-08-24",
     venue: "Arcus Ground",
@@ -295,7 +296,9 @@ export function migrate(store) {
         : matching.map((team) => team.id);
     return {
       hasAuction: t.teamFormation ? t.teamFormation === "auction" : true,
+      logo: "",
       ...t,
+      logo: t.logo || "",
       sport,
       categoryId,
       teamIds

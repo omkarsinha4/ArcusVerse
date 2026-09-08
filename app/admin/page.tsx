@@ -140,18 +140,25 @@ export default function AdminOverview() {
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
           {admin.tournaments.map((t: any) => (
             <Card key={t.id} className="min-h-[150px]">
-              <p className="text-xs font-bold uppercase tracking-widest" style={{ color: "var(--orange)" }}>
-                {t.sport}
-              </p>
-              <h3 className="font-display text-3xl">{t.name}</h3>
-              <p className="text-sm" style={{ color: "var(--muted)" }}>
-                {t.venue} · {t.startDate} → {t.endDate}
-              </p>
-              <p className="mt-2 text-sm">
-                {admin.categories.find((c: any) => c.id === t.categoryId)?.name || "—"} · {(t.teamIds || []).length} teams ·{" "}
-                {admin.players.filter((p: any) => (p.tournamentIds || []).includes(t.id)).length} players · Auction{" "}
-                {t.hasAuction ? "Yes" : "No"}
-              </p>
+              <div className="flex items-start gap-3">
+                {t.logo ? (
+                  <img src={t.logo} alt="" className="h-14 w-14 shrink-0 rounded-xl object-cover" />
+                ) : null}
+                <div className="min-w-0">
+                  <p className="text-xs font-bold uppercase tracking-widest" style={{ color: "var(--orange)" }}>
+                    {t.sport}
+                  </p>
+                  <h3 className="font-display text-3xl">{t.name}</h3>
+                  <p className="text-sm" style={{ color: "var(--muted)" }}>
+                    {t.venue} · {t.startDate} → {t.endDate}
+                  </p>
+                  <p className="mt-2 text-sm">
+                    {admin.categories.find((c: any) => c.id === t.categoryId)?.name || "—"} · {(t.teamIds || []).length}{" "}
+                    teams · {admin.players.filter((p: any) => (p.tournamentIds || []).includes(t.id)).length} players ·
+                    Auction {t.hasAuction ? "Yes" : "No"}
+                  </p>
+                </div>
+              </div>
             </Card>
           ))}
         </div>
