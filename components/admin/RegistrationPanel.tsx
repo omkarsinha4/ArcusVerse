@@ -717,21 +717,99 @@ export function RegistrationPanel({ admin, emit }: any) {
                       onChange={(e) => updateField({ displayOrder: Number(e.target.value) })}
                     />
                     {(selectedField.fieldType === "dropdown" || selectedField.fieldType === "single") && (
-                      <label className="block space-y-1 text-[11px] font-semibold uppercase tracking-wider" style={{ color: "var(--muted)" }}>
-                        Options (one per line)
-                        <textarea
-                          className="field mt-1 min-h-[100px] w-full"
-                          value={(selectedField.options || []).join("\n")}
-                          onChange={(e) =>
-                            updateField({
-                              options: e.target.value
-                                .split("\n")
-                                .map((x) => x.trim())
-                                .filter(Boolean)
-                            })
-                          }
-                        />
-                      </label>
+                      <>
+                        {(selectedField.key === "auctionTeam" || selectedField.config?.source) && (
+                          <Select
+                            label="Team list source"
+                            value={selectedField.config?.source === "tournamentTeams" ? "tournamentTeams" : "custom"}
+                            onChange={(e) =>
+                              updateField({
+                                config: { ...(selectedField.config || {}), source: e.target.value }
+                              })
+                            }
+                          >
+                            <option value="custom">Custom team names (editable below)</option>
+                            <option value="tournamentTeams">Tournament teams (auto from tournament)</option>
+                          </Select>
+                        )}
+                        {selectedField.config?.source === "tournamentTeams" ? (
+                          <div className="space-y-2">
+                            <p className="text-sm" style={{ color: "var(--muted)" }}>
+                              Public form will list teams linked to this tournament.
+                            </p>
+                            <Button
+                              onClick={() => {
+                                const tour = tournaments.find((t: any) => t.id === tournamentId);
+                                const names = (tour?.teamIds || [])
+                                  .map((id: string) => admin.teams.find((x: any) => x.id === id)?.name)
+                                  .filter(Boolean);
+                                updateField({
+                                  config: { ...(selectedField.config || {}), source: "custom" },
+                                  options: names.length
+                                    ? names
+                                    : selectedField.options?.length
+                                      ? selectedField.options
+                                      : ["Phoenix", "Royal Challengers", "Vikings", "Royal Warriors", "Mavericks", "Strikers"]
+                                });
+                              }}
+                            >
+                              Switch to custom and copy current teams
+                            </Button>
+                          </div>
+                        ) : (
+                          <>
+                            <label
+                              className="block space-y-1 text-[11px] font-semibold uppercase tracking-wider"
+                              style={{ color: "var(--muted)" }}
+                            >
+                              {selectedField.key === "auctionTeam" ? "Team names (one per line)" : "Options (one per line)"}
+                              <textarea
+                                className="field mt-1 min-h-[100px] w-full"
+                                value={(selectedField.options || []).join("\n")}
+                                onChange={(e) =>
+                                  updateField({
+                                    options: e.target.value
+                                      .split("\n")
+                                      .map((x) => x.trim())
+                                      .filter(Boolean)
+                                  })
+                                }
+                              />
+                            </label>
+                            {selectedField.key === "auctionTeam" ? (
+                              <div className="flex flex-wrap gap-2">
+                                <Button
+                                  onClick={() => {
+                                    const tour = tournaments.find((t: any) => t.id === tournamentId);
+                                    const names = (tour?.teamIds || [])
+                                      .map((id: string) => admin.teams.find((x: any) => x.id === id)?.name)
+                                      .filter(Boolean);
+                                    if (names.length) updateField({ options: names });
+                                  }}
+                                >
+                                  Load from tournament
+                                </Button>
+                                <Button
+                                  onClick={() =>
+                                    updateField({
+                                      options: [
+                                        "Phoenix",
+                                        "Royal Challengers",
+                                        "Vikings",
+                                        "Royal Warriors",
+                                        "Mavericks",
+                                        "Strikers"
+                                      ]
+                                    })
+                                  }
+                                >
+                                  Load ACPL defaults
+                                </Button>
+                              </div>
+                            ) : null}
+                          </>
+                        )}
+                      </>
                     )}
                     {!selectedField.predefined ? (
                       <Button

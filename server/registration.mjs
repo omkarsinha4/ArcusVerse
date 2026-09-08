@@ -493,6 +493,7 @@ export function publicFormPayload(store, form) {
     .map((t) => ({ id: t.id, name: t.name }));
 
   const fields = (form.fields || []).map((f) => {
+    // Only auto-fill from tournament teams when explicitly configured — custom lists win otherwise
     if (f.config?.source === "tournamentTeams" && teams.length) {
       return { ...f, options: teams.map((t) => t.name) };
     }

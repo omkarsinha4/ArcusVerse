@@ -382,7 +382,20 @@ export function migrate(store) {
     let n = 2;
     while (used.has(candidate.toLowerCase())) candidate = `${publicSlug}-${n++}`.slice(0, 64);
     used.add(candidate.toLowerCase());
-    return { ...f, publicSlug: candidate };
+    const fields = (f.fields || []).map((field) => {
+      if (field.key !== "auctionTeam") return field;
+      // Prefer editable custom team lists; keep tournamentTeams if already set that way
+      if (field.config?.source === "tournamentTeams") return field;
+      return {
+        ...field,
+        config: { ...(field.config || {}), source: field.config?.source || "custom" },
+        options:
+          Array.isArray(field.options) && field.options.length
+            ? field.options
+            : ["Phoenix", "Royal Challengers", "Vikings", "Royal Warriors", "Mavericks", "Strikers"]
+      };
+    });
+    return { ...f, publicSlug: candidate, fields };
   });
   return store;
 }

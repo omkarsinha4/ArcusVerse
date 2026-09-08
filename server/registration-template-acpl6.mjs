@@ -239,7 +239,8 @@ export function buildAcplSeason6Form(tournament, store) {
       required: false,
       displayOrder: 160,
       options: teamOptions,
-      config: { source: "tournamentTeams" }
+      // custom = admin-editable list; tournamentTeams = live pull from tournament
+      config: { source: "custom" }
     }),
     field({
       key: "arcusRelation",
