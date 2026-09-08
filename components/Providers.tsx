@@ -72,8 +72,18 @@ export function Providers({ children }: { children: React.ReactNode }) {
   const emit = <T,>(event: string, payload?: unknown, opts?: { timeoutMs?: number }) =>
     new Promise<T>((resolve, reject) => {
       if (!socket) return reject(new Error("Not connected"));
-      const timeoutMs = opts?.timeoutMs ?? (event === "upload" ? 60000 : 15000);
-      const timer = setTimeout(() => reject(new Error("No response from server")), timeoutMs);
+      const timeoutMs = opts?.timeoutMs ?? (event === "upload" ? 90000 : 15000);
+      const timer = setTimeout(
+        () =>
+          reject(
+            new Error(
+              event === "upload"
+                ? "Upload timed out — try a smaller JPG/PNG (under 2 MB)"
+                : "No response from server"
+            )
+          ),
+        timeoutMs
+      );
       socket.emit(event, payload || {}, (res: { ok?: boolean; error?: string } & T) => {
         clearTimeout(timer);
         if (res && res.ok === false) reject(new Error(res.error || "Failed"));

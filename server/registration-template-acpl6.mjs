@@ -104,7 +104,7 @@ export function buildAcplSeason6Form(tournament, store) {
       required: true,
       displayOrder: 20,
       placeholder: "10-digit mobile",
-      validation: { pattern: "^[6-9]\\d{9}$", message: "Enter a valid 10-digit Indian mobile number" }
+      validation: { pattern: "^[6-9]\\d{9}$", message: "Mobile number must be exactly 10 digits" }
     }),
     field({
       key: "dob",

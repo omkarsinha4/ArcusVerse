@@ -136,8 +136,11 @@ export function DynamicForm({ form, mode = "public", onSubmit, uploadFile }: Pro
       if (required[f.key] && empty) next[f.key] = `${f.label} is required`;
       if (!empty && f.fieldType === "phone") {
         const digits = String(val).replace(/\D/g, "");
-        const phone = digits.length === 12 && digits.startsWith("91") ? digits.slice(2) : digits;
-        if (!/^[6-9]\d{9}$/.test(phone)) next[f.key] = f.validation?.message || "Invalid mobile number";
+        if (digits.length !== 10) {
+          next[f.key] = "Mobile number must be exactly 10 digits";
+        } else if (!/^[6-9]\d{9}$/.test(digits)) {
+          next[f.key] = f.validation?.message || "Enter a valid 10-digit Indian mobile number";
+        }
       }
     }
     setErrors(next);
@@ -184,15 +187,17 @@ export function DynamicForm({ form, mode = "public", onSubmit, uploadFile }: Pro
             type="file"
             accept={
               f.fieldType === "image"
-                ? "image/*"
-                : "image/*,application/pdf,.pdf"
+                ? "image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"
+                : "image/jpeg,image/png,image/webp,application/pdf,.jpg,.jpeg,.png,.webp,.pdf"
             }
             disabled={busy || mode === "preview"}
             onChange={(e) => onFile(f, e.target.files?.[0] || null)}
             className="field w-full text-sm"
           />
           <p className="mt-1 text-xs" style={{ color: "var(--muted)" }}>
-            {f.fieldType === "image" ? "Take a photo or choose from gallery / files." : "Choose a photo, PDF, or file from your device."}
+            {f.fieldType === "image"
+              ? "Choose from gallery or files (camera is also available on mobile)."
+              : "Upload from gallery or files (JPG, PNG, or PDF)."}
           </p>
           {fileNames[f.key] ? (
             <p className="mt-1 text-xs" style={{ color: "var(--turf)" }}>
@@ -287,7 +292,17 @@ export function DynamicForm({ form, mode = "public", onSubmit, uploadFile }: Pro
         value={values[f.key] || ""}
         placeholder={f.placeholder}
         disabled={busy || mode === "preview"}
-        onChange={(e) => setVal(f.key, e.target.value)}
+        inputMode={f.fieldType === "phone" ? "numeric" : undefined}
+        maxLength={f.fieldType === "phone" ? 10 : undefined}
+        pattern={f.fieldType === "phone" ? "[0-9]{10}" : undefined}
+        onChange={(e) => {
+          if (f.fieldType === "phone") {
+            const digits = e.target.value.replace(/\D/g, "").slice(0, 10);
+            setVal(f.key, digits);
+            return;
+          }
+          setVal(f.key, e.target.value);
+        }}
       />
     );
   };

@@ -40,7 +40,8 @@ function AdminGateInner({ children }: { children: React.ReactNode }) {
   const [staff, setStaff] = useState("");
 
   const staffEmit = async (event: string, payload?: unknown) => {
-    if (event !== "login") {
+    // Skip re-login before uploads — large base64 payloads + login first often hang the socket
+    if (event !== "login" && event !== "upload") {
       try {
         const saved = sessionStorage.getItem("arcus-auth");
         if (saved) {
@@ -51,7 +52,7 @@ function AdminGateInner({ children }: { children: React.ReactNode }) {
         /* */
       }
     }
-    return emit(event, payload, event === "upload" ? { timeoutMs: 60000 } : undefined);
+    return emit(event, payload, event === "upload" ? { timeoutMs: 90000 } : undefined);
   };
 
   useEffect(() => {

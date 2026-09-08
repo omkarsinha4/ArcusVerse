@@ -214,6 +214,11 @@ function normalizePhone(raw) {
   return digits;
 }
 
+function isValidMobile10(raw) {
+  const phone = normalizePhone(raw);
+  return /^[6-9]\d{9}$/.test(phone) && phone.length === 10;
+}
+
 function ageFromDob(dob, at = new Date()) {
   const d = new Date(dob);
   if (Number.isNaN(d.getTime())) return null;
@@ -246,9 +251,10 @@ export function validateSubmission(form, values, fileIds) {
 
     if (f.fieldType === "phone") {
       const phone = normalizePhone(val);
-      const pattern = f.validation?.pattern || "^[6-9]\\d{9}$";
-      if (!new RegExp(pattern).test(phone)) {
-        errors[f.key] = f.validation?.message || "Invalid mobile number";
+      if (phone.length !== 10) {
+        errors[f.key] = "Mobile number must be exactly 10 digits";
+      } else if (!isValidMobile10(phone)) {
+        errors[f.key] = f.validation?.message || "Enter a valid 10-digit Indian mobile number";
       }
     }
     if (f.fieldType === "email") {

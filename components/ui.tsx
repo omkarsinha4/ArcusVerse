@@ -240,9 +240,9 @@ export function ColorSelect({
 }
 
 /** Downscale/compress images before upload so socket payloads stay under limits. */
-export async function compressImageDataUrl(dataUrl: string, file: File, maxEdge = 1600, quality = 0.82): Promise<string> {
+export async function compressImageDataUrl(dataUrl: string, file: File, maxEdge = 1200, quality = 0.72): Promise<string> {
   if (!file.type.startsWith("image/")) return dataUrl;
-  if (file.size <= 400 * 1024) return dataUrl;
+  if (file.size <= 250 * 1024) return dataUrl;
   try {
     const img = await new Promise<HTMLImageElement>((resolve, reject) => {
       const el = new Image();
@@ -284,8 +284,8 @@ export function FilePick({
         onChange={async (e) => {
           const file = e.target.files?.[0];
           if (!file) return;
-          if (file.size > 12 * 1024 * 1024) {
-            alert("File is too large (max 12 MB). Please choose a smaller image.");
+          if (file.size > 8 * 1024 * 1024) {
+            alert("File is too large (max 8 MB). Please choose a smaller image.");
             e.target.value = "";
             return;
           }

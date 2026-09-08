@@ -73,12 +73,13 @@ export function TournamentsPanel({ admin, emit }: any) {
           label="Tournament logo"
           onData={async (dataUrl, file) => {
             try {
-              const res: any = await emit("upload", { dataUrl, filename: file.name });
+              // Use raw socket emit (skip staff re-login) and a long timeout for large images
+              const res: any = await emit("upload", { dataUrl, filename: file.name || "logo.jpg" });
               const url = res?.url;
               if (!url) throw new Error(res?.error || "Upload failed");
               setForm((f) => ({ ...f, logo: url }));
             } catch (e: any) {
-              alert(e.message || "Logo upload failed");
+              alert(e.message || "Logo upload failed — try a smaller JPG/PNG (under 5 MB).");
             }
           }}
         />
@@ -194,10 +195,9 @@ export function TournamentsPanel({ admin, emit }: any) {
                   ...t,
                   logo: t.logo || "",
                   categoryId: t.categoryId || admin.categories[0]?.id,
-                  teamIds: t.teamIds || [],
-                  playerIds: Array.isArray(t.playerIds)
-                    ? t.playerIds
-                    : admin.players.filter((p: any) => (p.tournamentIds || []).includes(t.id)).map((p: any) => p.id)
+                  teamIds: Array.isArray(t.teamIds) ? t.teamIds : [],
+                  // Never expand to “all players on tournamentIds” — that re-selected everyone on edit.
+                  playerIds: Array.isArray(t.playerIds) ? t.playerIds : []
                 })
               }
             >
