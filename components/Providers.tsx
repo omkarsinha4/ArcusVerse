@@ -48,9 +48,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     const s = io({
-      transports: ["websocket", "polling"],
-      // Match server — large logo data-URLs
-      maxHttpBufferSize: 15 * 1024 * 1024
+      transports: ["websocket", "polling"]
     });
     setSocket(s);
     s.on("connect", () => {
