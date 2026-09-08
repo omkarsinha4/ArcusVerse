@@ -406,18 +406,22 @@ export function RegistrationPanel({ admin, emit }: any) {
               {draft.logo ? <img src={draft.logo} alt="" className="h-16 w-16 rounded-xl object-cover" /> : null}
               <div className="grid gap-3 md:grid-cols-2">
                 <Field
-                  label="Opens at"
+                  label="Opens at (IST)"
                   type="datetime-local"
                   value={draft.opensAt || ""}
                   onChange={(e) => setDraft({ ...draft, opensAt: e.target.value })}
                 />
                 <Field
-                  label="Closes at"
+                  label="Closes at (IST)"
                   type="datetime-local"
                   value={draft.closesAt || ""}
                   onChange={(e) => setDraft({ ...draft, closesAt: e.target.value })}
                 />
               </div>
+              <p className="text-xs" style={{ color: "var(--muted)" }}>
+                Schedule times are India Standard Time. Clicking <strong>Open registration</strong> starts the form
+                immediately (a future “Opens at” time is cleared).
+              </p>
               <Field
                 label="Overall capacity"
                 type="number"

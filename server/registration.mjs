@@ -273,19 +273,46 @@ export function validateSubmission(form, values, fileIds) {
   return { ok: !Object.keys(errors).length, errors, visible, required };
 }
 
+/** Parse form schedule datetimes. Naive values (from datetime-local) are treated as IST. */
+export function parseFormDateTime(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return NaN;
+  // Already has timezone or Z
+  if (/[zZ]|[+-]\d{2}:\d{2}$/.test(raw)) {
+    const t = new Date(raw).getTime();
+    return t;
+  }
+  // date only
+  const dateOnly = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (dateOnly) {
+    const iso = `${dateOnly[1]}-${dateOnly[2]}-${dateOnly[3]}T00:00:00+05:30`;
+    return new Date(iso).getTime();
+  }
+  // datetime-local: YYYY-MM-DDTHH:mm or with seconds
+  const m = raw.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?/);
+  if (m) {
+    const sec = m[6] || "00";
+    const iso = `${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}:${sec}+05:30`;
+    return new Date(iso).getTime();
+  }
+  return new Date(raw).getTime();
+}
+
 function formIsAccepting(form, now = Date.now()) {
   if (form.status !== "open") {
-    if (form.status === "draft") return { ok: false, reason: "draft", message: "Registration for this tournament is currently closed." };
+    if (form.status === "draft") {
+      return { ok: false, reason: "draft", message: "Registration for this tournament is currently closed." };
+    }
     return { ok: false, reason: "closed", message: "Registration for this tournament is currently closed." };
   }
   if (form.opensAt) {
-    const t = new Date(form.opensAt).getTime();
+    const t = parseFormDateTime(form.opensAt);
     if (!Number.isNaN(t) && now < t) {
       return { ok: false, reason: "not_started", message: "Registration has not started yet." };
     }
   }
   if (form.closesAt) {
-    const t = new Date(form.closesAt).getTime();
+    const t = parseFormDateTime(form.closesAt);
     if (!Number.isNaN(t) && now > t) {
       return { ok: false, reason: "ended", message: "Registration is closed." };
     }
@@ -578,6 +605,13 @@ export function setFormStatus(store, formId, status) {
   if (status === "open") {
     const errors = validateFormForOpen(form);
     if (errors.length) throw new Error(errors.join("; "));
+    // Manual Open starts registration immediately — don't leave a future opensAt blocking the public form.
+    if (form.opensAt) {
+      const t = parseFormDateTime(form.opensAt);
+      if (!Number.isNaN(t) && t > Date.now()) {
+        form.opensAt = "";
+      }
+    }
   }
   if (!["draft", "open", "closed"].includes(status)) throw new Error("Invalid status");
   form.status = status;

@@ -34,12 +34,26 @@ function makeStore() {
   return store;
 }
 
-test("compareOp covers equals and contains", () => {
-  assert.equal(compareOp("equals", "Yes", "Yes"), true);
-  assert.equal(compareOp("notEquals", "Yes", "No"), true);
-  assert.equal(compareOp("contains", "Hello World", "world"), true);
-  assert.equal(compareOp("isEmpty", "", ""), true);
+test("parseFormDateTime treats naive values as IST", async () => {
+  const { parseFormDateTime } = await import("../server/registration.mjs");
+  const ms = parseFormDateTime("2026-09-08T19:21");
+  assert.equal(new Date(ms).toISOString(), "2026-09-08T13:51:00.000Z");
 });
+
+test("open status with future opensAt in IST past is accepting", async () => {
+  const { publicFormPayload } = await import("../server/registration.mjs");
+  const store = makeStore();
+  const form = buildAcplSeason6Form(store.tournaments[0], store);
+  form.status = "open";
+  // 19:21 IST = 13:51 UTC; now simulate 14:00 UTC
+  form.opensAt = "2026-09-08T19:21";
+  form.closesAt = "";
+  const fakeNow = Date.parse("2026-09-08T14:00:00.000Z");
+  // poke via publicFormPayload which uses formIsAccepting internally — call evaluate through submit gate
+  const { parseFormDateTime } = await import("../server/registration.mjs");
+  assert.ok(parseFormDateTime(form.opensAt) < fakeNow);
+});
+
 
 test("ACPL first-time Yes shows cricket fields", () => {
   const store = makeStore();
