@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { useApp } from "./Providers";
 import { SportBackdrop } from "./SportBackdrop";
@@ -241,8 +242,10 @@ export function ColorSelect({
 
 /** Downscale/compress images before upload so socket payloads stay under limits. */
 export async function compressImageDataUrl(dataUrl: string, file: File, maxEdge = 1200, quality = 0.72): Promise<string> {
-  if (!file.type.startsWith("image/")) return dataUrl;
-  if (file.size <= 250 * 1024) return dataUrl;
+  const looksImage = file.type.startsWith("image/") || /\.(jpe?g|png|webp|gif)$/i.test(file.name || "");
+  if (!looksImage) return dataUrl;
+  // Always compress above ~80KB — phone photos are often huge even when type is missing
+  if (file.size && file.size <= 80 * 1024 && file.type.startsWith("image/")) return dataUrl;
   try {
     const img = await new Promise<HTMLImageElement>((resolve, reject) => {
       const el = new Image();
@@ -272,33 +275,50 @@ export function FilePick({
 }: {
   label: string;
   accept?: string;
-  onData: (dataUrl: string, file: File) => void;
+  onData: (dataUrl: string, file: File) => void | Promise<void>;
 }) {
+  const [busy, setBusy] = useState(false);
   return (
     <label className="block text-[11px] font-semibold uppercase tracking-wider" style={{ color: "var(--muted)" }}>
       {label}
       <input
         type="file"
-        accept={accept || "image/*"}
+        accept={accept || "image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"}
+        disabled={busy}
         className="mt-1 block w-full text-xs"
         onChange={async (e) => {
           const file = e.target.files?.[0];
+          e.target.value = "";
           if (!file) return;
           if (file.size > 8 * 1024 * 1024) {
             alert("File is too large (max 8 MB). Please choose a smaller image.");
-            e.target.value = "";
             return;
           }
-          const reader = new FileReader();
-          reader.onload = async () => {
-            const raw = String(reader.result || "");
-            const dataUrl = await compressImageDataUrl(raw, file);
-            onData(dataUrl, file);
-          };
-          reader.onerror = () => alert("Could not read file");
-          reader.readAsDataURL(file);
+          try {
+            setBusy(true);
+            const raw = await new Promise<string>((resolve, reject) => {
+              const reader = new FileReader();
+              reader.onload = () => resolve(String(reader.result || ""));
+              reader.onerror = () => reject(new Error("Could not read file"));
+              reader.readAsDataURL(file);
+            });
+            // Always compress images so socket payloads stay small
+            const dataUrl = file.type.startsWith("image/") || /\.(jpe?g|png|webp|gif)$/i.test(file.name)
+              ? await compressImageDataUrl(raw, file, 1000, 0.7)
+              : raw;
+            await onData(dataUrl, file);
+          } catch (err: any) {
+            alert(err?.message || "Upload failed");
+          } finally {
+            setBusy(false);
+          }
         }}
       />
+      {busy ? (
+        <p className="mt-1 text-xs" style={{ color: "var(--accent)" }}>
+          Uploading…
+        </p>
+      ) : null}
     </label>
   );
 }
