@@ -400,27 +400,22 @@ export function RegistrationPanel({ admin, emit }: any) {
                 />
               </label>
               <FilePick
-                label="Form / tournament logo"
+                label="Registration header logo (optional override)"
                 onData={async (dataUrl, file) => {
                   const res: any = await emit("upload", { dataUrl, filename: file.name });
                   if (res.ok) setDraft({ ...draft, logo: res.url });
                 }}
               />
-              {draft.logo ? <img src={draft.logo} alt="" className="h-16 w-16 rounded-xl object-cover" /> : null}
-              {!draft.logo && tournaments.find((t: any) => t.id === tournamentId)?.logo ? (
-                <Button
-                  onClick={() =>
-                    setDraft({
-                      ...draft,
-                      logo: tournaments.find((t: any) => t.id === tournamentId)?.logo || ""
-                    })
-                  }
-                >
-                  Use tournament logo
-                </Button>
-              ) : null}
+              {(draft.logo || tournaments.find((t: any) => t.id === tournamentId)?.logo) && (
+                <img
+                  src={draft.logo || tournaments.find((t: any) => t.id === tournamentId)?.logo}
+                  alt=""
+                  className="h-16 w-16 rounded-xl object-cover"
+                />
+              )}
               <p className="text-xs" style={{ color: "var(--muted)" }}>
-                This logo appears at the top of the public registration page. Saving a tournament logo also updates it here.
+                By default the public form uses the <strong>tournament logo</strong> from Tournaments. Upload here only to
+                override it.
               </p>
               <div className="grid gap-3 md:grid-cols-2">
                 <Field
