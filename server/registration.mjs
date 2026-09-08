@@ -493,7 +493,14 @@ export function publicFormPayload(store, form) {
     .map((t) => ({ id: t.id, name: t.name }));
 
   const fields = (form.fields || []).map((f) => {
-    // Only auto-fill from tournament teams when explicitly configured — custom lists win otherwise
+    // Auction team choices always come from teams added to the tournament
+    if (f.key === "auctionTeam") {
+      return {
+        ...f,
+        options: teams.map((t) => t.name),
+        config: { ...(f.config || {}), source: "tournamentTeams" }
+      };
+    }
     if (f.config?.source === "tournamentTeams" && teams.length) {
       return { ...f, options: teams.map((t) => t.name) };
     }
@@ -501,13 +508,15 @@ export function publicFormPayload(store, form) {
   });
 
   const accepting = formIsAccepting(form);
+  // Tournament logo is the source of truth for the public header
+  const logo = tournament?.logo || form.logo || "";
   return {
     form: {
       id: form.id,
       tournamentId: form.tournamentId,
       title: form.title,
       description: form.description,
-      logo: form.logo || tournament?.logo || "",
+      logo,
       publicSlug: form.publicSlug || "",
       status: form.status,
       opensAt: form.opensAt,

@@ -438,45 +438,40 @@ export function attachSockets(io, store, urls) {
           tournament = { id: uid(), ...body };
           store.tournaments.push(tournament);
         }
-        let playerIds = Array.isArray(p.playerIds)
-          ? p.playerIds.filter((id) => {
-              const pl = store.players.find((x) => x.id === id);
-              return (
-                pl &&
-                pl.categoryId === categoryId &&
-                String(pl.sport || "Cricket").toLowerCase() === wantSport
-              );
-            })
-          : store.players
-              .filter(
-                (pl) =>
-                  pl.categoryId === categoryId &&
-                  String(pl.sport || "Cricket").toLowerCase() === wantSport
-              )
-              .map((pl) => pl.id);
-        if (!playerIds.length) {
-          playerIds = store.players
-            .filter(
-              (pl) =>
-                pl.categoryId === categoryId &&
-                String(pl.sport || "Cricket").toLowerCase() === wantSport
-            )
-            .map((pl) => pl.id);
+        // Only update player membership when playerIds is explicitly provided.
+        // Never re-select "all players" on edit — that wiped intentional deselections.
+        if (Array.isArray(p.playerIds)) {
+          const playerIds = p.playerIds.filter((id) => {
+            const pl = store.players.find((x) => x.id === id);
+            return (
+              pl &&
+              pl.categoryId === categoryId &&
+              String(pl.sport || "Cricket").toLowerCase() === wantSport
+            );
+          });
+          for (const pl of store.players) {
+            const ids = new Set(pl.tournamentIds || []);
+            if (playerIds.includes(pl.id)) ids.add(tournament.id);
+            else ids.delete(tournament.id);
+            pl.tournamentIds = Array.from(ids);
+          }
         }
-        for (const pl of store.players) {
-          const ids = new Set(pl.tournamentIds || []);
-          if (playerIds.includes(pl.id)) ids.add(tournament.id);
-          else ids.delete(tournament.id);
-          pl.tournamentIds = Array.from(ids);
-        }
-        // Keep registration form header logo in sync with tournament logo when set
+        // Registration form inherits tournament logo + auction team list from tournament
         const regForm = getFormByTournament(store, tournament.id);
-        if (regForm && body.logo) {
-          regForm.logo = body.logo;
+        if (regForm) {
+          if (body.logo) regForm.logo = body.logo;
+          const auctionTeam = (regForm.fields || []).find((f) => f.key === "auctionTeam");
+          if (auctionTeam) {
+            const names = body.teamIds
+              .map((id) => store.teams.find((x) => x.id === id)?.name)
+              .filter(Boolean);
+            auctionTeam.config = { ...(auctionTeam.config || {}), source: "tournamentTeams" };
+            auctionTeam.options = names;
+          }
           regForm.updatedAt = Date.now();
         }
         io.to("admin").emit("admin-state", adminState(store));
-        return { admin: adminState(store) };
+        return { admin: adminState(store), tournament };
       })
     );
 

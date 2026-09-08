@@ -295,13 +295,15 @@ export function migrate(store) {
     const matching = (store.teams || []).filter(
       (team) => team.categoryId === categoryId && sportOf(team) === want
     );
-    const teamIds =
-      Array.isArray(t.teamIds) && t.teamIds.length
-        ? t.teamIds.filter((id) => matching.some((team) => team.id === id))
-        : matching.map((team) => team.id);
+    // Preserve intentional empty team lists — only default when teamIds is missing
+    const teamIds = Array.isArray(t.teamIds)
+      ? t.teamIds.filter((id) => matching.some((team) => team.id === id))
+      : matching.map((team) => team.id);
     return {
       hasAuction: t.teamFormation ? t.teamFormation === "auction" : true,
+      logo: "",
       ...t,
+      logo: t.logo || "",
       sport,
       categoryId,
       teamIds

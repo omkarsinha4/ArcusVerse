@@ -72,8 +72,14 @@ export function TournamentsPanel({ admin, emit }: any) {
         <FilePick
           label="Tournament logo"
           onData={async (dataUrl, file) => {
-            const res: any = await emit("upload", { dataUrl, filename: file.name });
-            if (res?.url) setForm((f) => ({ ...f, logo: res.url }));
+            try {
+              const res: any = await emit("upload", { dataUrl, filename: file.name });
+              const url = res?.url;
+              if (!url) throw new Error(res?.error || "Upload failed");
+              setForm((f) => ({ ...f, logo: url }));
+            } catch (e: any) {
+              alert(e.message || "Logo upload failed");
+            }
           }}
         />
         {form.logo ? (
@@ -81,7 +87,11 @@ export function TournamentsPanel({ admin, emit }: any) {
             <img src={form.logo} alt="" className="h-14 w-14 rounded-xl object-cover" />
             <Button onClick={() => setForm({ ...form, logo: "" })}>Remove logo</Button>
           </div>
-        ) : null}
+        ) : (
+          <p className="text-xs" style={{ color: "var(--muted)" }}>
+            Upload a logo, then click Save. It appears on the public registration page.
+          </p>
+        )}
         <Field label="Start date" type="date" value={form.startDate} onChange={(e) => setForm({ ...form, startDate: e.target.value })} />
         <Field label="End date" type="date" value={form.endDate} onChange={(e) => setForm({ ...form, endDate: e.target.value })} />
         <Field label="Venue" value={form.venue} onChange={(e) => setForm({ ...form, venue: e.target.value })} />
@@ -150,7 +160,29 @@ export function TournamentsPanel({ admin, emit }: any) {
           </div>
         </div>
         <div className="flex gap-2">
-          <Button variant="turf" onClick={() => emit("upsert-tournament", form).then(() => setForm({ ...blank, categoryId: form.categoryId }))}>
+          <Button
+            variant="turf"
+            onClick={() =>
+              emit("upsert-tournament", form).then((res: any) => {
+                const saved =
+                  res.tournament ||
+                  res.admin?.tournaments?.find((x: any) => x.id === form.id) ||
+                  res.admin?.tournaments?.find((x: any) => x.name === form.name);
+                if (saved) {
+                  setForm({
+                    ...blank,
+                    ...saved,
+                    logo: saved.logo || form.logo || "",
+                    categoryId: saved.categoryId || form.categoryId,
+                    teamIds: saved.teamIds || [],
+                    playerIds: admin.players
+                      .filter((p: any) => (p.tournamentIds || []).includes(saved.id))
+                      .map((p: any) => p.id)
+                  });
+                }
+              })
+            }
+          >
             Save
           </Button>
           {form.id && <Button onClick={() => setForm(blank)}>Clear</Button>}
