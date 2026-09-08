@@ -290,6 +290,10 @@ export function FilePick({
           const file = e.target.files?.[0];
           e.target.value = "";
           if (!file) return;
+          if (file.size < 2 * 1024) {
+            alert("Image is too small or invalid. Please choose a real logo (JPG/PNG, at least a few KB).");
+            return;
+          }
           if (file.size > 8 * 1024 * 1024) {
             alert("File is too large (max 8 MB). Please choose a smaller image.");
             return;

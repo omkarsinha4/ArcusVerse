@@ -908,7 +908,7 @@ export function RegistrationPanel({ admin, emit }: any) {
                           onClick={() => setSelectedReg(r)}
                         >
                           <td className="py-2 font-medium">{r.registrationId}</td>
-                          <td>{r.sequence}</td>
+                          <td>{r.categorySequence || r.sequence}</td>
                           <td>{r.playerName || r.values?.playerName}</td>
                           <td>{r.category || r.values?.category}</td>
                           <td>
@@ -932,7 +932,8 @@ export function RegistrationPanel({ admin, emit }: any) {
                   <>
                     <p className="font-display text-3xl">{selectedReg.values?.playerName}</p>
                     <p className="text-sm" style={{ color: "var(--muted)" }}>
-                      {selectedReg.registrationId} · #{selectedReg.sequence} ·{" "}
+                      {selectedReg.registrationId} · #{selectedReg.categorySequence || selectedReg.sequence} ·{" "}
+                      {selectedReg.category || selectedReg.values?.category || "—"} ·{" "}
                       {new Date(selectedReg.registeredAt).toLocaleString()}
                     </p>
                     <div className="space-y-1 text-sm">
@@ -974,6 +975,17 @@ export function RegistrationPanel({ admin, emit }: any) {
                       </Button>
                       <Button variant="danger" onClick={() => updateRegStatus(selectedReg.id, "rejected")}>
                         Reject
+                      </Button>
+                      <Button
+                        variant="danger"
+                        onClick={async () => {
+                          if (!confirm(`Delete ${selectedReg.registrationId}? Registration numbers after this entry will decrease by 1.`)) return;
+                          const res = await emit("reg-delete", { registrationId: selectedReg.id });
+                          if (!res.ok) setMsg(res.error);
+                          else setSelectedReg(null);
+                        }}
+                      >
+                        Delete
                       </Button>
                     </div>
                   </>
