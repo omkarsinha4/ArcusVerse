@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Button, Field, Select } from "@/components/ui";
+import { Button, Field, Select, compressImageDataUrl } from "@/components/ui";
 import { evaluateFieldState, type RegField, type RegRule } from "@/lib/registration/conditions";
 
 type Props = {
@@ -102,7 +102,10 @@ export function DynamicForm({ form, mode = "public", onSubmit, uploadFile }: Pro
     }
     try {
       setBusy(true);
-      const dataUrl = await fileToDataUrl(file);
+      let dataUrl = await fileToDataUrl(file);
+      if (file.type.startsWith("image/")) {
+        dataUrl = await compressImageDataUrl(dataUrl, file);
+      }
       if (!uploadFile) {
         setErrors((e) => ({ ...e, [field.key]: "Upload not available" }));
         return;
@@ -181,14 +184,16 @@ export function DynamicForm({ form, mode = "public", onSubmit, uploadFile }: Pro
             type="file"
             accept={
               f.fieldType === "image"
-                ? "image/jpeg,image/png,image/webp"
-                : "image/jpeg,image/png,application/pdf"
+                ? "image/*"
+                : "image/*,application/pdf,.pdf"
             }
-            capture={f.fieldType === "image" ? "environment" : undefined}
             disabled={busy || mode === "preview"}
             onChange={(e) => onFile(f, e.target.files?.[0] || null)}
             className="field w-full text-sm"
           />
+          <p className="mt-1 text-xs" style={{ color: "var(--muted)" }}>
+            {f.fieldType === "image" ? "Take a photo or choose from gallery / files." : "Choose a photo, PDF, or file from your device."}
+          </p>
           {fileNames[f.key] ? (
             <p className="mt-1 text-xs" style={{ color: "var(--turf)" }}>
               Uploaded: {fileNames[f.key]}

@@ -239,6 +239,32 @@ export function ColorSelect({
   );
 }
 
+/** Downscale/compress images before upload so socket payloads stay under limits. */
+export async function compressImageDataUrl(dataUrl: string, file: File, maxEdge = 1600, quality = 0.82): Promise<string> {
+  if (!file.type.startsWith("image/")) return dataUrl;
+  if (file.size <= 400 * 1024) return dataUrl;
+  try {
+    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const el = new Image();
+      el.onload = () => resolve(el);
+      el.onerror = () => reject(new Error("Could not read image"));
+      el.src = dataUrl;
+    });
+    const scale = Math.min(1, maxEdge / Math.max(img.width, img.height));
+    const w = Math.max(1, Math.round(img.width * scale));
+    const h = Math.max(1, Math.round(img.height * scale));
+    const canvas = document.createElement("canvas");
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return dataUrl;
+    ctx.drawImage(img, 0, 0, w, h);
+    return canvas.toDataURL("image/jpeg", quality);
+  } catch {
+    return dataUrl;
+  }
+}
+
 export function FilePick({
   label,
   accept,
@@ -258,8 +284,18 @@ export function FilePick({
         onChange={async (e) => {
           const file = e.target.files?.[0];
           if (!file) return;
+          if (file.size > 12 * 1024 * 1024) {
+            alert("File is too large (max 12 MB). Please choose a smaller image.");
+            e.target.value = "";
+            return;
+          }
           const reader = new FileReader();
-          reader.onload = () => onData(String(reader.result), file);
+          reader.onload = async () => {
+            const raw = String(reader.result || "");
+            const dataUrl = await compressImageDataUrl(raw, file);
+            onData(dataUrl, file);
+          };
+          reader.onerror = () => alert("Could not read file");
           reader.readAsDataURL(file);
         }}
       />

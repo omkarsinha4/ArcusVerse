@@ -21,7 +21,7 @@ type Ctx = {
   setTheme: (t: Theme) => void;
   sport: string;
   setSport: (s: string) => void;
-  emit: <T = unknown>(event: string, payload?: unknown) => Promise<T>;
+  emit: <T = unknown>(event: string, payload?: unknown, opts?: { timeoutMs?: number }) => Promise<T>;
   logout: () => void;
 };
 
@@ -47,7 +47,11 @@ export function Providers({ children }: { children: React.ReactNode }) {
   };
 
   useEffect(() => {
-    const s = io({ transports: ["websocket", "polling"] });
+    const s = io({
+      transports: ["websocket", "polling"],
+      // Match server — large logo data-URLs
+      maxHttpBufferSize: 15 * 1024 * 1024
+    });
     setSocket(s);
     s.on("connect", () => {
       setConnected(true);
@@ -67,10 +71,11 @@ export function Providers({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
-  const emit = <T,>(event: string, payload?: unknown) =>
+  const emit = <T,>(event: string, payload?: unknown, opts?: { timeoutMs?: number }) =>
     new Promise<T>((resolve, reject) => {
       if (!socket) return reject(new Error("Not connected"));
-      const timer = setTimeout(() => reject(new Error("No response from server")), 10000);
+      const timeoutMs = opts?.timeoutMs ?? (event === "upload" ? 60000 : 15000);
+      const timer = setTimeout(() => reject(new Error("No response from server")), timeoutMs);
       socket.emit(event, payload || {}, (res: { ok?: boolean; error?: string } & T) => {
         clearTimeout(timer);
         if (res && res.ok === false) reject(new Error(res.error || "Failed"));
@@ -96,7 +101,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
 }
 
 export function useApp() {
-  const ctx = useContext(C);
-  if (!ctx) throw new Error("useApp");
-  return ctx;
+  const c = useContext(C);
+  if (!c) throw new Error("useApp");
+  return c;
 }

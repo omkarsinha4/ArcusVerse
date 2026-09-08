@@ -179,7 +179,8 @@ export function emptySeed() {
     venue: "Arcus Ground",
     hasAuction: true,
     categoryId: men.id,
-    teamIds: teams.filter((t) => t.categoryId === men.id).map((t) => t.id)
+    teamIds: teams.filter((t) => t.categoryId === men.id).map((t) => t.id),
+    playerIds: []
   };
   const players = names.map(([name, cat], i) => {
     const category = catByName[cat];
@@ -198,6 +199,7 @@ export function emptySeed() {
       tournamentIds: [tournament.id]
     };
   });
+  tournament.playerIds = players.map((p) => p.id);
 
   const owners = teams.map((team, i) => {
     const username = team.name.toLowerCase();
@@ -299,6 +301,13 @@ export function migrate(store) {
     const teamIds = Array.isArray(t.teamIds)
       ? t.teamIds.filter((id) => matching.some((team) => team.id === id))
       : matching.map((team) => team.id);
+    const matchingPlayers = (store.players || []).filter(
+      (pl) => pl.categoryId === categoryId && sportOf(pl) === want
+    );
+    // Authoritative player list on the tournament (like teamIds). Derive once if missing.
+    const playerIds = Array.isArray(t.playerIds)
+      ? t.playerIds.filter((id) => matchingPlayers.some((pl) => pl.id === id))
+      : matchingPlayers.filter((pl) => (pl.tournamentIds || []).includes(t.id)).map((pl) => pl.id);
     return {
       hasAuction: t.teamFormation ? t.teamFormation === "auction" : true,
       logo: "",
@@ -306,15 +315,25 @@ export function migrate(store) {
       logo: t.logo || "",
       sport,
       categoryId,
-      teamIds
+      teamIds,
+      playerIds
     };
   });
+  // Rebuild player.tournamentIds from tournament.playerIds (source of truth)
+  const tournamentIdsByPlayer = new Map();
+  for (const t of store.tournaments || []) {
+    for (const pid of t.playerIds || []) {
+      if (!tournamentIdsByPlayer.has(pid)) tournamentIdsByPlayer.set(pid, []);
+      tournamentIdsByPlayer.get(pid).push(t.id);
+    }
+  }
   store.players = (store.players || []).map((p) => ({
     assignment: p.teamId ? "team" : "auction",
-    tournamentIds: p.tournamentIds || (store.tournaments[0] ? [store.tournaments[0].id] : []),
     sport: "Cricket",
     ...p,
-    sport: p.sport || "Cricket"
+    sport: p.sport || "Cricket",
+    // Always derive from tournament.playerIds after migrate (authoritative)
+    tournamentIds: tournamentIdsByPlayer.get(p.id) || []
   }));
   store.acplHistory ||= { meta: null, players: [], log: null };
   store.auctions = (store.auctions || []).map((a) => {

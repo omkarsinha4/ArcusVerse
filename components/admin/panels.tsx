@@ -164,10 +164,7 @@ export function TournamentsPanel({ admin, emit }: any) {
             variant="turf"
             onClick={() =>
               emit("upsert-tournament", form).then((res: any) => {
-                const saved =
-                  res.tournament ||
-                  res.admin?.tournaments?.find((x: any) => x.id === form.id) ||
-                  res.admin?.tournaments?.find((x: any) => x.name === form.name);
+                const saved = res.tournament;
                 if (saved) {
                   setForm({
                     ...blank,
@@ -175,9 +172,7 @@ export function TournamentsPanel({ admin, emit }: any) {
                     logo: saved.logo || form.logo || "",
                     categoryId: saved.categoryId || form.categoryId,
                     teamIds: saved.teamIds || [],
-                    playerIds: admin.players
-                      .filter((p: any) => (p.tournamentIds || []).includes(saved.id))
-                      .map((p: any) => p.id)
+                    playerIds: Array.isArray(saved.playerIds) ? saved.playerIds : form.playerIds
                   });
                 }
               })
@@ -200,7 +195,9 @@ export function TournamentsPanel({ admin, emit }: any) {
                   logo: t.logo || "",
                   categoryId: t.categoryId || admin.categories[0]?.id,
                   teamIds: t.teamIds || [],
-                  playerIds: admin.players.filter((p: any) => (p.tournamentIds || []).includes(t.id)).map((p: any) => p.id)
+                  playerIds: Array.isArray(t.playerIds)
+                    ? t.playerIds
+                    : admin.players.filter((p: any) => (p.tournamentIds || []).includes(t.id)).map((p: any) => p.id)
                 })
               }
             >

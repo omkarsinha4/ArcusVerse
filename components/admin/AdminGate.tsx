@@ -51,7 +51,7 @@ function AdminGateInner({ children }: { children: React.ReactNode }) {
         /* */
       }
     }
-    return emit(event, payload);
+    return emit(event, payload, event === "upload" ? { timeoutMs: 60000 } : undefined);
   };
 
   useEffect(() => {

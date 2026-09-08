@@ -435,27 +435,34 @@ export function attachSockets(io, store, urls) {
           tournament = { ...store.tournaments[i], ...body, id: p.id };
           store.tournaments[i] = tournament;
         } else {
-          tournament = { id: uid(), ...body };
+          tournament = { id: uid(), ...body, playerIds: [] };
           store.tournaments.push(tournament);
         }
-        // Only update player membership when playerIds is explicitly provided.
-        // Never re-select "all players" on edit — that wiped intentional deselections.
-        if (Array.isArray(p.playerIds)) {
-          const playerIds = p.playerIds.filter((id) => {
-            const pl = store.players.find((x) => x.id === id);
-            return (
-              pl &&
-              pl.categoryId === categoryId &&
-              String(pl.sport || "Cricket").toLowerCase() === wantSport
-            );
-          });
-          for (const pl of store.players) {
-            const ids = new Set(pl.tournamentIds || []);
-            if (playerIds.includes(pl.id)) ids.add(tournament.id);
-            else ids.delete(tournament.id);
-            pl.tournamentIds = Array.from(ids);
-          }
+
+        // playerIds on the tournament is authoritative (same pattern as teamIds)
+        const playerIds = Array.isArray(p.playerIds)
+          ? p.playerIds.filter((id) => {
+              const pl = store.players.find((x) => x.id === id);
+              return (
+                pl &&
+                pl.categoryId === categoryId &&
+                String(pl.sport || "Cricket").toLowerCase() === wantSport
+              );
+            })
+          : Array.isArray(tournament.playerIds)
+            ? tournament.playerIds
+            : [];
+        tournament.playerIds = playerIds;
+        const tIndex = store.tournaments.findIndex((t) => t.id === tournament.id);
+        if (tIndex >= 0) store.tournaments[tIndex] = tournament;
+
+        for (const pl of store.players) {
+          const ids = new Set(pl.tournamentIds || []);
+          if (playerIds.includes(pl.id)) ids.add(tournament.id);
+          else ids.delete(tournament.id);
+          pl.tournamentIds = Array.from(ids);
         }
+
         // Registration form inherits tournament logo + auction team list from tournament
         const regForm = getFormByTournament(store, tournament.id);
         if (regForm) {

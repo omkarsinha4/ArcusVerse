@@ -184,7 +184,9 @@ const httpServer = createServer(async (req, res) => {
 });
 
 io = new Server(httpServer, {
-  cors: { origin: true, credentials: true }
+  cors: { origin: true, credentials: true },
+  // Allow tournament logo / photo uploads as base64 data URLs (default 1MB is too small)
+  maxHttpBufferSize: 15 * 1024 * 1024
 });
 
 const urls = advertiseUrls(port);
