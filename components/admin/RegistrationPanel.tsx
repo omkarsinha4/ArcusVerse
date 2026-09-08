@@ -117,7 +117,8 @@ export function RegistrationPanel({ admin, emit }: any) {
   const waiting = regs.filter((r: any) => r.status === "waiting");
 
   const baseUrl = hello?.appUrl || (typeof window !== "undefined" ? window.location.origin : "");
-  const publicUrl = form?.publicToken ? `${baseUrl}/register/${form.publicToken}` : "";
+  const publicPath = form?.publicSlug || form?.publicToken;
+  const publicUrl = publicPath ? `${baseUrl}/register/${publicPath}` : "";
 
   const refreshAdmin = (res: any) => {
     if (res?.admin) {
@@ -552,10 +553,26 @@ export function RegistrationPanel({ admin, emit }: any) {
                 <p className="text-xs font-bold uppercase tracking-widest" style={{ color: "var(--muted)" }}>
                   Public URL
                 </p>
-                <p className="break-all text-sm">{publicUrl}</p>
+                <Field
+                  label="Friendly path"
+                  value={draft.publicSlug || ""}
+                  placeholder="ACPL-6"
+                  onChange={(e) =>
+                    setDraft({
+                      ...draft,
+                      publicSlug: e.target.value.replace(/\s+/g, "-")
+                    })
+                  }
+                />
+                <p className="break-all text-sm">
+                  {baseUrl}/register/<strong>{draft.publicSlug || "…"}</strong>
+                </p>
+                <p className="text-xs" style={{ color: "var(--muted)" }}>
+                  Letters, numbers, hyphens. Old secret token links still work.
+                </p>
                 <Button
                   onClick={() => {
-                    navigator.clipboard?.writeText(publicUrl);
+                    navigator.clipboard?.writeText(`${baseUrl}/register/${draft.publicSlug || form.publicToken}`);
                     setMsg("Public URL copied");
                   }}
                 >

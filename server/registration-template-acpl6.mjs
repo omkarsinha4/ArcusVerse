@@ -5,6 +5,29 @@ function token() {
   return randomBytes(24).toString("hex");
 }
 
+/** Friendly URL segment: letters, numbers, hyphen, underscore. */
+export function normalizePublicSlug(raw) {
+  return String(raw || "")
+    .trim()
+    .replace(/\s+/g, "-")
+    .replace(/[^a-zA-Z0-9_-]/g, "")
+    .replace(/-+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 64);
+}
+
+/** Suggest ACPL-6 from "ACPL Season 6", else from name/prefix. */
+export function suggestPublicSlug(tournament, extras = {}) {
+  const name = String(tournament?.name || "");
+  const season = name.match(/\bACPL\b.*?\b(?:Season\s*)?(\d+)\b/i);
+  if (season) return `ACPL-${season[1]}`;
+  const fromPrefix = normalizePublicSlug(String(extras.idPrefix || "").replace(/^REG-?/i, ""));
+  if (fromPrefix) return fromPrefix;
+  const fromName = normalizePublicSlug(name);
+  if (fromName) return fromName;
+  return normalizePublicSlug(tournament?.id) || "register";
+}
+
 function field(partial) {
   return {
     id: uid(),
@@ -366,6 +389,7 @@ export function buildAcplSeason6Form(tournament, store) {
   ];
 
   const name = tournament?.name || "Tournament";
+  const idPrefix = "REG-ACPL6";
   return {
     id: uid(),
     tournamentId: tournament.id,
@@ -374,6 +398,7 @@ export function buildAcplSeason6Form(tournament, store) {
     logo: tournament.logo || "",
     status: "draft",
     publicToken: token(),
+    publicSlug: suggestPublicSlug(tournament, { idPrefix }),
     opensAt: "",
     closesAt: "",
     capacity: 100,
@@ -383,7 +408,7 @@ export function buildAcplSeason6Form(tournament, store) {
       "Kid's": 30
     },
     useCategoryCapacity: true,
-    idPrefix: "REG-ACPL6",
+    idPrefix,
     version: 1,
     photoPolicy: "keepExisting",
     payment: {
@@ -423,6 +448,7 @@ export function blankRegistrationForm(tournament) {
     logo: tournament.logo || "",
     status: "draft",
     publicToken: token(),
+    publicSlug: suggestPublicSlug(tournament),
     opensAt: "",
     closesAt: "",
     capacity: 100,

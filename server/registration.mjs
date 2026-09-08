@@ -3,7 +3,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { createHmac, randomBytes, timingSafeEqual } from "crypto";
 import { uid } from "./store.mjs";
-import { buildAcplSeason6Form, blankRegistrationForm } from "./registration-template-acpl6.mjs";
+import { buildAcplSeason6Form, blankRegistrationForm, normalizePublicSlug, suggestPublicSlug } from "./registration-template-acpl6.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const PRIVATE_UPLOAD_DIR = path.join(__dirname, "..", "data", "private-uploads");
@@ -36,6 +36,24 @@ export function migrateRegistration(store) {
     ...t,
     logo: t.logo || ""
   }));
+  store.registrationForms = (store.registrationForms || []).map((f) => {
+    const tournament = (store.tournaments || []).find((t) => t.id === f.tournamentId);
+    let publicSlug = normalizePublicSlug(f.publicSlug);
+    if (!publicSlug) publicSlug = suggestPublicSlug(tournament, { idPrefix: f.idPrefix });
+    // Ensure uniqueness among forms
+    const taken = new Set(
+      (store.registrationForms || [])
+        .filter((x) => x.id !== f.id)
+        .map((x) => String(x.publicSlug || "").toLowerCase())
+        .filter(Boolean)
+    );
+    let candidate = publicSlug;
+    let n = 2;
+    while (taken.has(candidate.toLowerCase())) {
+      candidate = `${publicSlug}-${n++}`.slice(0, 64);
+    }
+    return { ...f, publicSlug: candidate };
+  });
   return store;
 }
 
@@ -407,9 +425,32 @@ function findOrCreatePlayer(store, form, values, fileMeta) {
   return player;
 }
 
-export function getFormByToken(store, token) {
+export function getFormByToken(store, tokenOrSlug) {
   ensureCollections(store);
-  return store.registrationForms.find((f) => f.publicToken === token) || null;
+  const key = String(tokenOrSlug || "").trim();
+  if (!key) return null;
+  const lower = key.toLowerCase();
+  return (
+    store.registrationForms.find((f) => f.publicToken === key) ||
+    store.registrationForms.find((f) => String(f.publicSlug || "").toLowerCase() === lower) ||
+    null
+  );
+}
+
+export function formPublicPath(form) {
+  if (!form) return "";
+  return form.publicSlug || form.publicToken || "";
+}
+
+function assertUniqueSlug(store, slug, exceptFormId) {
+  const normalized = normalizePublicSlug(slug);
+  if (!normalized) throw new Error("Public URL slug is required");
+  if (normalized.length < 2) throw new Error("Public URL slug is too short");
+  const clash = store.registrationForms.find(
+    (f) => f.id !== exceptFormId && String(f.publicSlug || "").toLowerCase() === normalized.toLowerCase()
+  );
+  if (clash) throw new Error(`Public URL slug "${normalized}" is already used by another form`);
+  return normalized;
 }
 
 export function getFormByTournament(store, tournamentId) {
@@ -516,6 +557,12 @@ export function upsertForm(store, patch) {
     updatedAt: Date.now()
   };
   delete next.bumpVersion;
+  if (patch.publicSlug != null) {
+    next.publicSlug = assertUniqueSlug(store, patch.publicSlug, prev.id);
+  } else if (!next.publicSlug) {
+    const tournament = store.tournaments.find((t) => t.id === prev.tournamentId);
+    next.publicSlug = assertUniqueSlug(store, suggestPublicSlug(tournament, { idPrefix: next.idPrefix }), prev.id);
+  }
   if (Array.isArray(patch.fields) && patch.fields !== prev.fields) {
     next.fieldHistory = [...(prev.fieldHistory || []), { version: prev.version, fields: prev.fields, at: Date.now() }].slice(
       -20

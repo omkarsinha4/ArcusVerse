@@ -355,6 +355,35 @@ export function migrate(store) {
     ...t,
     logo: t.logo || ""
   }));
+  // Friendly public URL slugs for registration forms
+  const slugify = (raw) =>
+    String(raw || "")
+      .trim()
+      .replace(/\s+/g, "-")
+      .replace(/[^a-zA-Z0-9_-]/g, "")
+      .replace(/-+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 64);
+  const suggest = (t, idPrefix) => {
+    const name = String(t?.name || "");
+    const season = name.match(/\bACPL\b.*?\b(?:Season\s*)?(\d+)\b/i);
+    if (season) return `ACPL-${season[1]}`;
+    const fromPrefix = slugify(String(idPrefix || "").replace(/^REG-?/i, ""));
+    if (fromPrefix) return fromPrefix;
+    return slugify(name) || slugify(t?.id) || "register";
+  };
+  const used = new Set();
+  store.registrationForms = store.registrationForms.map((f) => {
+    let publicSlug = slugify(f.publicSlug) || suggest(
+      store.tournaments.find((t) => t.id === f.tournamentId),
+      f.idPrefix
+    );
+    let candidate = publicSlug;
+    let n = 2;
+    while (used.has(candidate.toLowerCase())) candidate = `${publicSlug}-${n++}`.slice(0, 64);
+    used.add(candidate.toLowerCase());
+    return { ...f, publicSlug: candidate };
+  });
   return store;
 }
 
