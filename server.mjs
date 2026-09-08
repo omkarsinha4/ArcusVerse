@@ -2,6 +2,8 @@ import { createServer } from "http";
 import next from "next";
 import { Server } from "socket.io";
 import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
 import { loadStore, advertiseUrls, saveStore, saveUpload } from "./server/store.mjs";
 import { attachSockets } from "./server/sockets.mjs";
 import { adminState } from "./server/engine.mjs";
@@ -15,6 +17,9 @@ import {
   PRIVATE_UPLOAD_DIR
 } from "./server/registration.mjs";
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const PUBLIC_UPLOAD_DIR = path.join(__dirname, "public", "uploads");
+
 const dev = process.env.NODE_ENV !== "production";
 const hostname = "0.0.0.0";
 const port = Number(process.env.PORT || 3000);
@@ -26,6 +31,46 @@ await app.prepare();
 
 const store = loadStore();
 fs.mkdirSync(PRIVATE_UPLOAD_DIR, { recursive: true });
+fs.mkdirSync(PUBLIC_UPLOAD_DIR, { recursive: true });
+
+const UPLOAD_MIME = {
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  webp: "image/webp",
+  gif: "image/gif",
+  pdf: "application/pdf",
+  svg: "image/svg+xml"
+};
+
+/** Serve public/uploads from disk — Next.js production often 404s files written after startup. */
+function servePublicUpload(req, res) {
+  const url = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
+  if (req.method !== "GET" && req.method !== "HEAD") return false;
+  const m = url.pathname.match(/^\/uploads\/([a-zA-Z0-9._-]+)$/);
+  if (!m) return false;
+  const name = m[1];
+  if (name.includes("..") || name.includes("/") || name.includes("\\")) {
+    res.writeHead(400).end("Bad request");
+    return true;
+  }
+  const abs = path.join(PUBLIC_UPLOAD_DIR, name);
+  if (!abs.startsWith(PUBLIC_UPLOAD_DIR) || !fs.existsSync(abs) || !fs.statSync(abs).isFile()) {
+    res.writeHead(404).end("Not found");
+    return true;
+  }
+  const ext = (name.split(".").pop() || "").toLowerCase();
+  const type = UPLOAD_MIME[ext] || "application/octet-stream";
+  const buf = fs.readFileSync(abs);
+  res.writeHead(200, {
+    "Content-Type": type,
+    "Content-Length": buf.length,
+    "Cache-Control": "public, max-age=31536000, immutable"
+  });
+  if (req.method === "HEAD") res.end();
+  else res.end(buf);
+  return true;
+}
 
 /** @type {import("socket.io").Server | null} */
 let io = null;
@@ -175,6 +220,7 @@ async function handleRegistrationApi(req, res) {
 
 const httpServer = createServer(async (req, res) => {
   try {
+    if (servePublicUpload(req, res)) return;
     if (await handleRegistrationApi(req, res)) return;
   } catch (e) {
     sendJson(res, 500, { ok: false, error: e.message || "Server error" });

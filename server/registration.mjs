@@ -438,23 +438,29 @@ function findOrCreatePlayer(store, form, values, fileMeta) {
     } else if (photoUrl) {
       player.photo = photoUrl;
     }
-    return player;
+  } else {
+    player = {
+      id: uid(),
+      name,
+      photo: photoUrl || "",
+      role: mapRoleFromValues(values),
+      categoryId,
+      sport: tournament?.sport || "Cricket",
+      basePrice: 100,
+      phone,
+      teamId: null,
+      assignment: "auction",
+      tournamentIds: [form.tournamentId]
+    };
+    store.players.push(player);
   }
 
-  player = {
-    id: uid(),
-    name,
-    photo: photoUrl || "",
-    role: mapRoleFromValues(values),
-    categoryId,
-    sport: tournament?.sport || "Cricket",
-    basePrice: 100,
-    phone,
-    teamId: null,
-    assignment: "auction",
-    tournamentIds: [form.tournamentId]
-  };
-  store.players.push(player);
+  // Keep tournament.playerIds in sync (authoritative list for admin edit UI)
+  if (tournament) {
+    if (!Array.isArray(tournament.playerIds)) tournament.playerIds = [];
+    if (!tournament.playerIds.includes(player.id)) tournament.playerIds.push(player.id);
+  }
+
   return player;
 }
 
