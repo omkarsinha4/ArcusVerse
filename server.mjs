@@ -14,8 +14,12 @@ import {
   submitRegistration,
   getPrivateFile,
   verifyFileAccess,
-  PRIVATE_UPLOAD_DIR
+  PRIVATE_UPLOAD_DIR,
+  migrateRegistration,
+  dashboardForForm,
+  formIsAccepting
 } from "./server/registration.mjs";
+import { startDailyRegistrationReportScheduler } from "./server/email.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_UPLOAD_DIR = path.join(__dirname, "public", "uploads");
@@ -30,6 +34,8 @@ const handle = app.getRequestHandler();
 await app.prepare();
 
 const store = loadStore();
+migrateRegistration(store);
+saveStore(store);
 fs.mkdirSync(PRIVATE_UPLOAD_DIR, { recursive: true });
 fs.mkdirSync(PUBLIC_UPLOAD_DIR, { recursive: true });
 
@@ -170,7 +176,11 @@ async function handleRegistrationApi(req, res) {
       const result = await submitRegistration(
         store,
         { token: m[1], values: body.values || {}, fileIds: body.fileIds || {} },
-        { saveUploadFn: saveUpload, performedBy: "public" }
+        {
+          saveUploadFn: saveUpload,
+          performedBy: "public",
+          appUrl: process.env.PUBLIC_URL || `http://${req.headers.host || "localhost:3000"}`
+        }
       );
       saveStore(store);
       io?.to("admin").emit("admin-state", adminState(store));
@@ -237,6 +247,12 @@ io = new Server(httpServer, {
 
 const urls = advertiseUrls(port);
 attachSockets(io, store, urls);
+
+startDailyRegistrationReportScheduler(() => store, {
+  appUrl: urls.appUrl || process.env.PUBLIC_URL || "",
+  dashboardForForm,
+  formIsAccepting
+});
 
 httpServer.listen(port, hostname, () => {
   console.log("\n  ArcusVerse auction is live\n");
