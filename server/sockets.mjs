@@ -28,6 +28,7 @@ import {
   listRegistrations,
   updateRegistrationStatus,
   setPaymentStatus,
+  deleteRegistration,
   exportCsv,
   signFileAccess,
   getFormByTournament,
@@ -85,7 +86,9 @@ function lotPayload(store, auction) {
           basePrice: player.basePrice,
           categoryId: player.categoryId,
           categoryName: store.categories.find((c) => c.id === player.categoryId)?.name || "",
-          acpl: acplCareerSummary(store, player.name)
+          acpl: player.acplPlayerId
+            ? acplCareerSummary(store, player.acplPlayerId) || acplCareerSummary(store, player.name)
+            : acplCareerSummary(store, player.name)
         }
       : null
   };
@@ -453,6 +456,7 @@ export function attachSockets(io, store, urls) {
             ? tournament.playerIds
             : [];
         tournament.playerIds = playerIds;
+        tournament.updatedAt = Date.now();
         const tIndex = store.tournaments.findIndex((t) => t.id === tournament.id);
         if (tIndex >= 0) store.tournaments[tIndex] = tournament;
 
@@ -467,6 +471,7 @@ export function attachSockets(io, store, urls) {
         const regForm = getFormByTournament(store, tournament.id);
         if (regForm) {
           if (body.logo) regForm.logo = body.logo;
+          else if (tournament.logo) regForm.logo = tournament.logo;
           const auctionTeam = (regForm.fields || []).find((f) => f.key === "auctionTeam");
           if (auctionTeam) {
             const names = body.teamIds
@@ -1141,7 +1146,8 @@ export function attachSockets(io, store, urls) {
         requireRole(socket, REG_ADMIN);
         const who = socket.data.userId || socket.data.role || "admin";
         const registration = await updateRegistrationStatus(store, p.registrationId, p.status, who, {
-          confirmPromote: p.confirmPromote === true
+          confirmPromote: p.confirmPromote === true,
+          saveUploadFn: saveUpload
         });
         io.to("admin").emit("admin-state", adminState(store));
         return { admin: adminState(store), registration };
@@ -1153,9 +1159,22 @@ export function attachSockets(io, store, urls) {
       wrap((p) => {
         requireRole(socket, REG_ADMIN);
         const who = socket.data.userId || socket.data.role || "admin";
-        const registration = setPaymentStatus(store, p.registrationId, p.paymentStatus, who);
+        const registration = setPaymentStatus(store, p.registrationId, p.paymentStatus, who, {
+          saveUploadFn: saveUpload
+        });
         io.to("admin").emit("admin-state", adminState(store));
         return { admin: adminState(store), registration };
+      })
+    );
+
+    socket.on(
+      "reg-delete",
+      wrapAsync(async (p) => {
+        requireRole(socket, REG_ADMIN);
+        const who = socket.data.userId || socket.data.role || "admin";
+        const result = await deleteRegistration(store, p.registrationId, who, { saveUploadFn: saveUpload });
+        io.to("admin").emit("admin-state", adminState(store));
+        return { admin: adminState(store), ...result };
       })
     );
 
