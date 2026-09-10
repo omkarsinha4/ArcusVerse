@@ -9,10 +9,11 @@
     "start": "cross-env NODE_ENV=production node server.mjs",
     "lint": "next lint",
     "import:acpl": "node scripts/import-acpl.mjs",
-    "test": "node --test tests/acpl.test.mjs tests/registration.test.mjs"
+    "test": "node --test tests/acpl.test.mjs tests/registration.test.mjs tests/player-dedupe.test.mjs && node --experimental-strip-types --test tests/publicUrl.test.mjs"
   },
   "dependencies": {
     "next": "^14.2.15",
+    "nodemailer": "^10.0.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "socket.io": "^4.8.1",
@@ -22,6 +23,7 @@
   },
   "devDependencies": {
     "@types/node": "^20.16.11",
+    "@types/nodemailer": "^8.0.1",
     "@types/react": "^18.3.11",
     "@types/react-dom": "^18.3.1",
     "@types/uuid": "^10.0.0",

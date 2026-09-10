@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Button, Card, Field, FilePick, Select } from "@/components/ui";
 import { DynamicForm } from "@/components/registration/DynamicForm";
 import { useApp } from "@/components/Providers";
+import { absoluteAppBase, registrationPublicUrl, whatsappShareHref } from "@/lib/publicUrl";
 
 const TABS = ["Dashboard", "Form builder", "Settings", "Preview", "Registrations", "Waiting list"] as const;
 
@@ -44,16 +45,83 @@ function Stat({ label, value }: { label: string; value: string | number }) {
   );
 }
 
-function BarRow({ label, value, max }: { label: string; value: number; max: number }) {
-  const pct = max > 0 ? Math.round((value / max) * 100) : 0;
+const DONUT_COLORS = ["#2563EB", "#F97316", "#10B981", "#E11D48", "#7C3AED", "#0E7490", "#CA8A04", "#64748B"];
+
+function DonutChart({
+  title,
+  segments
+}: {
+  title: string;
+  segments: { label: string; value: number }[];
+}) {
+  const total = segments.reduce((s, x) => s + (Number(x.value) || 0), 0);
+  const r = 56;
+  const c = 2 * Math.PI * r;
+  let offset = 0;
+  const arcs =
+    total > 0
+      ? segments.map((seg, i) => {
+          const v = Number(seg.value) || 0;
+          const len = (v / total) * c;
+          const stroke = DONUT_COLORS[i % DONUT_COLORS.length];
+          const el = (
+            <circle
+              key={seg.label}
+              cx="80"
+              cy="80"
+              r={r}
+              fill="none"
+              stroke={stroke}
+              strokeWidth="28"
+              strokeDasharray={`${len} ${c - len}`}
+              strokeDashoffset={-offset}
+              transform="rotate(-90 80 80)"
+            />
+          );
+          offset += len;
+          return el;
+        })
+      : [
+          <circle
+            key="empty"
+            cx="80"
+            cy="80"
+            r={r}
+            fill="none"
+            stroke="color-mix(in srgb, var(--ink) 12%, transparent)"
+            strokeWidth="28"
+          />
+        ];
+
   return (
-    <div className="space-y-1">
-      <div className="flex justify-between text-sm">
-        <span>{label}</span>
-        <span>{value}</span>
-      </div>
-      <div className="h-2 overflow-hidden rounded-full" style={{ background: "color-mix(in srgb, var(--ink) 10%, transparent)" }}>
-        <div className="h-full rounded-full" style={{ width: `${pct}%`, background: "var(--accent)" }} />
+    <div className="space-y-3">
+      <h3 className="font-display text-2xl">{title}</h3>
+      <div className="flex flex-wrap items-center gap-4">
+        <svg width="160" height="160" viewBox="0 0 160 160" aria-hidden>
+          {arcs}
+          <circle cx="80" cy="80" r="36" fill="var(--neu-bg)" />
+          <text x="80" y="86" textAnchor="middle" fontSize="18" fontWeight="700" fill="var(--ink)">
+            {total}
+          </text>
+        </svg>
+        <div className="min-w-[140px] space-y-1 text-sm">
+          {segments.length ? (
+            segments.map((seg, i) => (
+              <div key={seg.label} className="flex items-center justify-between gap-3">
+                <span className="inline-flex items-center gap-2">
+                  <span
+                    className="inline-block h-2.5 w-2.5 rounded-sm"
+                    style={{ background: DONUT_COLORS[i % DONUT_COLORS.length] }}
+                  />
+                  {seg.label}
+                </span>
+                <strong>{seg.value}</strong>
+              </div>
+            ))
+          ) : (
+            <p style={{ color: "var(--muted)" }}>No data yet</p>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -119,9 +187,13 @@ export function RegistrationPanel({ admin, emit }: any) {
 
   const waiting = regs.filter((r: any) => r.status === "waiting");
 
-  const baseUrl = hello?.appUrl || (typeof window !== "undefined" ? window.location.origin : "");
+  const baseUrl = absoluteAppBase(hello?.appUrl || (typeof window !== "undefined" ? window.location.origin : ""));
   const publicPath = form?.publicSlug || form?.publicToken;
-  const publicUrl = publicPath ? `${baseUrl}/register/${publicPath}` : "";
+  const publicUrl = registrationPublicUrl(baseUrl, publicPath);
+  const draftPublicUrl = registrationPublicUrl(baseUrl, draft?.publicSlug || form?.publicToken);
+  // Dashboard always shares the saved/published slug; Settings may share an unsaved draft slug.
+  const waSharePublished = whatsappShareHref(publicUrl, form?.title || "Registration");
+  const waShareDraft = whatsappShareHref(draftPublicUrl || publicUrl, draft?.title || form?.title || "Registration");
 
   const refreshAdmin = (res: any) => {
     if (res?.admin) {
@@ -358,32 +430,102 @@ export function RegistrationPanel({ admin, emit }: any) {
           {msg ? <p className="text-sm">{msg}</p> : null}
 
           {tab === "Dashboard" ? (
-            <div className="grid gap-4 lg:grid-cols-2">
+            <div className="grid gap-4">
+              {publicUrl ? (
+                <Card className="space-y-2">
+                  <p className="text-xs font-bold uppercase tracking-widest" style={{ color: "var(--muted)" }}>
+                    Share registration link
+                  </p>
+                  <a
+                    href={publicUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="block break-all text-sm font-semibold underline"
+                    style={{ color: "var(--accent)" }}
+                  >
+                    {publicUrl}
+                  </a>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      onClick={async () => {
+                        try {
+                          await navigator.clipboard?.writeText(publicUrl);
+                          setMsg("Link copied — paste into WhatsApp");
+                        } catch {
+                          setMsg(publicUrl);
+                        }
+                      }}
+                    >
+                      Copy URL
+                    </Button>
+                    {waSharePublished ? (
+                      <a
+                        className="btn btn-turf inline-flex px-5 py-2.5 text-sm"
+                        href={waSharePublished}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        Share on WhatsApp
+                      </a>
+                    ) : null}
+                  </div>
+                </Card>
+              ) : null}
               <Card className="space-y-3">
                 <h2 className="font-display text-3xl">Registration</h2>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
                   <Stat label="Total" value={dashboard?.total ?? "—"} />
                   <Stat label="Registered" value={dashboard?.registered ?? "—"} />
                   <Stat label="Waiting" value={dashboard?.waiting ?? "—"} />
-                  <Stat label="Available slots" value={dashboard?.availableSlots ?? "—"} />
                   <Stat label="Today" value={dashboard?.today ?? "—"} />
                 </div>
               </Card>
-              <Card className="space-y-3">
-                <h3 className="font-display text-2xl">By category</h3>
-                {Object.entries(dashboard?.byCategory || {}).map(([k, v]: any) => (
-                  <BarRow key={k} label={k} value={v} max={dashboard?.total || 1} />
+
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {Object.entries(dashboard?.availableSlotsByCategory || {}).map(([cat, slot]: any) => (
+                  <Card key={cat} className="space-y-1">
+                    <p className="text-xs font-bold uppercase tracking-widest" style={{ color: "var(--muted)" }}>
+                      {cat}
+                    </p>
+                    <p className="font-display text-3xl">{slot.registered ?? 0}</p>
+                    <p className="text-sm" style={{ color: "var(--muted)" }}>
+                      Registered
+                      {slot.capacity ? ` · Capacity ${slot.capacity}` : ""}
+                    </p>
+                    <p className="text-sm font-semibold" style={{ color: "var(--turf)" }}>
+                      Available slots: {slot.available == null ? "—" : slot.available}
+                    </p>
+                  </Card>
                 ))}
-                {!Object.keys(dashboard?.byCategory || {}).length ? (
-                  <p className="text-sm" style={{ color: "var(--muted)" }}>
-                    No registrations yet.
-                  </p>
+                {!Object.keys(dashboard?.availableSlotsByCategory || {}).length ? (
+                  <Card>
+                    <p className="text-sm" style={{ color: "var(--muted)" }}>
+                      No category data yet.
+                    </p>
+                  </Card>
                 ) : null}
-                <h3 className="font-display mt-4 text-2xl">Payment</h3>
-                {Object.entries(dashboard?.byPayment || {}).map(([k, v]: any) => (
-                  <BarRow key={k} label={k} value={v} max={dashboard?.total || 1} />
-                ))}
-              </Card>
+              </div>
+
+              <div className="grid gap-4 lg:grid-cols-2">
+                <Card>
+                  <DonutChart
+                    title="Count by category"
+                    segments={Object.entries(dashboard?.byCategory || {}).map(([label, value]) => ({
+                      label,
+                      value: Number(value) || 0
+                    }))}
+                  />
+                </Card>
+                <Card>
+                  <DonutChart
+                    title="Payment status"
+                    segments={Object.entries(dashboard?.byPayment || {}).map(([label, value]) => ({
+                      label,
+                      value: Number(value) || 0
+                    }))}
+                  />
+                </Card>
+              </div>
             </div>
           ) : null}
 
@@ -568,7 +710,7 @@ export function RegistrationPanel({ admin, emit }: any) {
               />
               <div className="neu-sm space-y-2 px-4 py-3">
                 <p className="text-xs font-bold uppercase tracking-widest" style={{ color: "var(--muted)" }}>
-                  Public URL
+                  Public URL (WhatsApp-ready)
                 </p>
                 <Field
                   label="Friendly path"
@@ -581,20 +723,51 @@ export function RegistrationPanel({ admin, emit }: any) {
                     })
                   }
                 />
-                <p className="break-all text-sm">
-                  {baseUrl}/register/<strong>{draft.publicSlug || "…"}</strong>
-                </p>
+                {draftPublicUrl ? (
+                  <a
+                    href={draftPublicUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="block break-all text-sm font-semibold underline"
+                    style={{ color: "var(--accent)" }}
+                  >
+                    {draftPublicUrl}
+                  </a>
+                ) : (
+                  <p className="break-all text-sm">
+                    {baseUrl}/register/<strong>{draft.publicSlug || "…"}</strong>
+                  </p>
+                )}
                 <p className="text-xs" style={{ color: "var(--muted)" }}>
-                  Letters, numbers, hyphens. Old secret token links still work.
+                  Full http:// link on one line — paste into WhatsApp as-is. Letters, numbers, hyphens only. Old token
+                  links still work.
                 </p>
-                <Button
-                  onClick={() => {
-                    navigator.clipboard?.writeText(`${baseUrl}/register/${draft.publicSlug || form.publicToken}`);
-                    setMsg("Public URL copied");
-                  }}
-                >
-                  Copy URL
-                </Button>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    onClick={async () => {
+                      const url = draftPublicUrl || registrationPublicUrl(baseUrl, draft.publicSlug || form.publicToken);
+                      if (!url) return;
+                      try {
+                        await navigator.clipboard?.writeText(url);
+                        setMsg("Public URL copied — paste into WhatsApp");
+                      } catch {
+                        setMsg(url);
+                      }
+                    }}
+                  >
+                    Copy URL
+                  </Button>
+                  {waShareDraft ? (
+                    <a
+                      className="btn btn-turf inline-flex px-5 py-2.5 text-sm"
+                      href={waShareDraft}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      Share on WhatsApp
+                    </a>
+                  ) : null}
+                </div>
               </div>
               <div className="flex flex-wrap gap-2">
                 <Button variant="bid" disabled={busy} onClick={saveDraft}>
@@ -908,7 +1081,7 @@ export function RegistrationPanel({ admin, emit }: any) {
                           onClick={() => setSelectedReg(r)}
                         >
                           <td className="py-2 font-medium">{r.registrationId}</td>
-                          <td>{r.sequence}</td>
+                          <td>{r.categorySequence || r.sequence}</td>
                           <td>{r.playerName || r.values?.playerName}</td>
                           <td>{r.category || r.values?.category}</td>
                           <td>
@@ -932,7 +1105,8 @@ export function RegistrationPanel({ admin, emit }: any) {
                   <>
                     <p className="font-display text-3xl">{selectedReg.values?.playerName}</p>
                     <p className="text-sm" style={{ color: "var(--muted)" }}>
-                      {selectedReg.registrationId} · #{selectedReg.sequence} ·{" "}
+                      {selectedReg.registrationId} · #{selectedReg.categorySequence || selectedReg.sequence} ·{" "}
+                      {selectedReg.category || selectedReg.values?.category || "—"} ·{" "}
                       {new Date(selectedReg.registeredAt).toLocaleString()}
                     </p>
                     <div className="space-y-1 text-sm">
@@ -974,6 +1148,17 @@ export function RegistrationPanel({ admin, emit }: any) {
                       </Button>
                       <Button variant="danger" onClick={() => updateRegStatus(selectedReg.id, "rejected")}>
                         Reject
+                      </Button>
+                      <Button
+                        variant="danger"
+                        onClick={async () => {
+                          if (!confirm(`Delete ${selectedReg.registrationId}? Registration numbers after this entry will decrease by 1.`)) return;
+                          const res = await emit("reg-delete", { registrationId: selectedReg.id });
+                          if (!res.ok) setMsg(res.error);
+                          else setSelectedReg(null);
+                        }}
+                      >
+                        Delete
                       </Button>
                     </div>
                   </>

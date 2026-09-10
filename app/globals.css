@@ -50,11 +50,11 @@ body {
     radial-gradient(800px 480px at 80% 110%, rgba(14, 165, 233, 0.16), transparent 46%),
     var(--neu-bg);
   color: var(--ink);
-  font-family: var(--font-comic), "Comic Sans MS", "Comic Neue", cursive, system-ui, sans-serif;
+  font-family: var(--font-nunito), "Nunito", system-ui, sans-serif;
 }
 
 .font-display {
-  font-family: var(--font-comic), "Comic Sans MS", "Comic Neue", cursive, system-ui, sans-serif;
+  font-family: var(--font-nunito), "Nunito", system-ui, sans-serif;
   font-style: normal;
   font-weight: 700;
   letter-spacing: 0;
@@ -80,7 +80,7 @@ body {
 }
 
 .tile-title {
-  font-family: var(--font-comic), "Comic Sans MS", "Comic Neue", cursive, system-ui, sans-serif;
+  font-family: var(--font-nunito), "Nunito", system-ui, sans-serif;
   font-weight: 700;
   font-size: clamp(1.05rem, 2.4vw, 1.55rem);
   line-height: 1.15;

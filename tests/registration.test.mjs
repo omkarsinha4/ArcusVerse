@@ -149,6 +149,7 @@ test("hidden required fields are not validated", () => {
   const values = {
     playerName: "Test Player",
     mobile: "9876543210",
+    email: "test@example.com",
     dob: "2000-01-01",
     category: "Men's",
     jerseySize: "40",
@@ -181,6 +182,7 @@ function baseValues(i) {
   return {
     playerName: `Player ${i}`,
     mobile: `90000000${String(i).padStart(2, "0")}`.slice(0, 10),
+    email: `player${i}@example.com`,
     dob: "1995-05-05",
     category: "Men's",
     jerseySize: "42",
@@ -220,41 +222,159 @@ test("waiting list: capacity 5 then promote after cancel", async () => {
         storagePath: `${uid()}.png`,
         uploadedAt: Date.now()
       };
-      // write empty private file path referenced
       fs.writeFileSync(path.join(tmp, "data", "private-uploads", photo.storedFilename), Buffer.from("x"));
-      // registration module uses PRIVATE_UPLOAD_DIR relative to server folder, not cwd —
-      // so for materialize photo we pass saveUpload that returns a fake url
       store.registrationFiles.push(photo);
       const out = await submitRegistration(
         store,
         { token: form.publicToken, values: baseValues(i), fileIds: { playerPhoto: photo.id } },
-        { saveUploadFn: () => `/uploads/fake-${i}.png` }
+        { saveUploadFn: () => `/uploads/fake-${i}.png`, sendEmail: false }
       );
       results.push(out.registration);
+      // ensure distinct timestamps for ordering
+      await new Promise((r) => setTimeout(r, 2));
     }
 
     assert.equal(results.filter((r) => r.status === "registered").length, 5);
     assert.equal(results[5].status, "waiting");
     assert.equal(results[5].waitingPosition, 1);
+    assert.equal(results[5].category, "Men's");
     assert.equal(results[5].sequence, 6);
 
-    const waitingId = store.registrations.find((r) => r.sequence === 6).id;
-    const cancelId = store.registrations.find((r) => r.sequence === 3).id;
-    const seq6Before = store.registrations.find((r) => r.sequence === 6);
-    const ts = seq6Before.registeredAt;
-    const rid = seq6Before.registrationId;
+    const waitingId = store.registrations.find((r) => r.values.playerName === "Player 6").id;
+    const cancelId = store.registrations.find((r) => r.values.playerName === "Player 3").id;
+    const waitingBefore = store.registrations.find((r) => r.id === waitingId);
+    const ts = waitingBefore.registeredAt;
 
     await updateRegistrationStatus(store, cancelId, "cancelled", "admin");
 
     const promoted = store.registrations.find((r) => r.id === waitingId);
     assert.equal(promoted.status, "registered");
-    assert.equal(promoted.sequence, 6);
     assert.equal(promoted.registeredAt, ts);
-    assert.equal(promoted.registrationId, rid);
     assert.equal(promoted.waitingPosition, null);
+    // Numbers follow registration timestamp among currently registered: P1,P2,P4,P5,P6 → 1..5
+    assert.equal(promoted.sequence, 5);
+    assert.equal(store.registrations.find((r) => r.values.playerName === "Player 1").sequence, 1);
+    assert.equal(store.registrations.find((r) => r.values.playerName === "Player 4").sequence, 3);
   } finally {
     process.chdir(prevCwd);
   }
+});
+
+test("per-category registration numbers and renumber on demote/delete", async () => {
+  const store = makeStore();
+  const form = await seedOpenForm(store, 100);
+  form.useCategoryCapacity = true;
+  form.categoryCapacity = { "Men's": 100, "Women's": 100, "Kid's": 100 };
+
+  const submit = async (i, category) => {
+    const photo = {
+      id: uid(),
+      formId: form.id,
+      fieldKey: "playerPhoto",
+      registrationId: null,
+      playerId: null,
+      originalFilename: "p.png",
+      storedFilename: `${uid()}.png`,
+      mimeType: "image/png",
+      fileSize: 10,
+      storagePath: "x.png",
+      uploadedAt: Date.now()
+    };
+    store.registrationFiles.push(photo);
+    const out = await submitRegistration(
+      store,
+      {
+        token: form.publicToken,
+        values: { ...baseValues(i), category, mobile: `9${String(100000000 + i).slice(0, 9)}` },
+        fileIds: { playerPhoto: photo.id }
+      },
+      { saveUploadFn: () => `/uploads/x.png`, sendEmail: false }
+    );
+    await new Promise((r) => setTimeout(r, 2));
+    return out.registration;
+  };
+
+  const m1 = await submit(1, "Men's");
+  const m2 = await submit(2, "Men's");
+  const w1 = await submit(3, "Women's");
+  const k1 = await submit(4, "Kid's");
+  const m3 = await submit(5, "Men's");
+
+  assert.equal(m1.sequence, 1);
+  assert.equal(m2.sequence, 2);
+  assert.equal(w1.sequence, 1);
+  assert.equal(k1.sequence, 1);
+  assert.equal(m3.sequence, 3);
+  assert.equal(m3.category, "Men's");
+  assert.match(m3.registrationId, /MEN-0003$/);
+
+  // Demote 2nd man → later men renumber (3 → 2)
+  const m2id = store.registrations.find((r) => r.values.playerName === "Player 2").id;
+  await updateRegistrationStatus(store, m2id, "waiting", "admin");
+  assert.equal(store.registrations.find((r) => r.values.playerName === "Player 1").sequence, 1);
+  assert.equal(store.registrations.find((r) => r.values.playerName === "Player 5").sequence, 2);
+  assert.equal(store.registrations.find((r) => r.values.playerName === "Player 3").sequence, 1); // women untouched
+
+  // Promote friend (Player 2) first, then ensure Player 5 who registered earlier? 
+  // Player 1 registered first, Player 5 second among registered — timestamps preserved
+  await updateRegistrationStatus(store, m2id, "registered", "admin", { confirmPromote: true });
+  const p1 = store.registrations.find((r) => r.values.playerName === "Player 1");
+  const p2 = store.registrations.find((r) => r.values.playerName === "Player 2");
+  const p5 = store.registrations.find((r) => r.values.playerName === "Player 5");
+  assert.ok(p1.registeredAt < p2.registeredAt);
+  assert.ok(p2.registeredAt < p5.registeredAt);
+  assert.equal(p1.sequence, 1);
+  assert.equal(p2.sequence, 2);
+  assert.equal(p5.sequence, 3);
+
+  // Delete Player 2 → Player 5 becomes #2
+  const { deleteRegistration } = await import("../server/registration.mjs");
+  await deleteRegistration(store, p2.id, "admin");
+  assert.equal(store.registrations.find((r) => r.values.playerName === "Player 5").sequence, 2);
+});
+
+test("promote/verify attaches player to tournament and links ACPL by name", async () => {
+  const store = makeStore();
+  const form = await seedOpenForm(store, 100);
+  store.acplHistory = {
+    meta: {},
+    players: [
+      {
+        id: "acpl-1",
+        name: "Player 1",
+        normalizedName: "player 1",
+        career: { matches: 10, runs: 200, wickets: 5 },
+        seasonsPlayed: ["S1"]
+      }
+    ],
+    log: null
+  };
+
+  const photo = {
+    id: uid(),
+    formId: form.id,
+    fieldKey: "playerPhoto",
+    registrationId: null,
+    playerId: null,
+    originalFilename: "p.png",
+    storedFilename: `${uid()}.png`,
+    mimeType: "image/png",
+    fileSize: 10,
+    storagePath: "x.png",
+    uploadedAt: Date.now()
+  };
+  store.registrationFiles.push(photo);
+  const out = await submitRegistration(
+    store,
+    { token: form.publicToken, values: baseValues(1), fileIds: { playerPhoto: photo.id } },
+    { saveUploadFn: () => `/uploads/p.png`, sendEmail: false }
+  );
+  assert.equal(out.registration.status, "registered");
+  const tour = store.tournaments[0];
+  const player = store.players.find((p) => p.name === "Player 1");
+  assert.ok(player);
+  assert.ok(tour.playerIds.includes(player.id));
+  assert.equal(player.acplPlayerId, "acpl-1");
 });
 
 test("concurrent submissions never overflow capacity", async () => {
@@ -281,7 +401,7 @@ test("concurrent submissions never overflow capacity", async () => {
       submitRegistration(
         store,
         { token: form.publicToken, values: baseValues(i + 20), fileIds: { playerPhoto: photo.id } },
-        { saveUploadFn: () => `/uploads/x.png` }
+        { saveUploadFn: () => `/uploads/x.png`, sendEmail: false }
       )
     );
   }

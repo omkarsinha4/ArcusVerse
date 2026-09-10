@@ -137,9 +137,12 @@ export function TournamentsPanel({ admin, emit }: any) {
         <div>
           <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
             <p className="text-sm font-bold uppercase tracking-wider" style={{ color: "var(--muted)" }}>
-              Players in this tournament ({form.sport} · {catName})
+              Players in this tournament ({form.playerIds.length} selected · {form.sport} · {catName})
             </p>
-            <Button onClick={() => setForm({ ...form, playerIds: catPlayers.map((p: any) => p.id) })}>Select all players</Button>
+            <div className="flex flex-wrap gap-2">
+              <Button onClick={() => setForm({ ...form, playerIds: [] })}>Clear players</Button>
+              <Button onClick={() => setForm({ ...form, playerIds: catPlayers.map((p: any) => p.id) })}>Select all players</Button>
+            </div>
           </div>
           <div className="grid max-h-72 gap-3 overflow-auto sm:grid-cols-2">
             {catPlayers.map((p: any) => (
@@ -151,7 +154,7 @@ export function TournamentsPanel({ admin, emit }: any) {
               >
                 <p className="font-display text-xl leading-tight break-words sm:text-2xl">{p.name}</p>
                 <p className="text-sm" style={{ color: "var(--muted)" }}>
-                  {p.sport || "Cricket"} · {p.role} · {inr(p.basePrice)}
+                  {p.sport || "Cricket"} · {p.role} · {inr(p.basePrice)} · {form.playerIds.includes(p.id) ? "Selected" : "Tap to add"}
                 </p>
               </button>
             ))}
@@ -164,19 +167,21 @@ export function TournamentsPanel({ admin, emit }: any) {
           <Button
             variant="turf"
             onClick={() =>
-              emit("upsert-tournament", form).then((res: any) => {
-                const saved = res.tournament;
-                if (saved) {
-                  setForm({
-                    ...blank,
-                    ...saved,
-                    logo: saved.logo || form.logo || "",
-                    categoryId: saved.categoryId || form.categoryId,
-                    teamIds: saved.teamIds || [],
-                    playerIds: Array.isArray(saved.playerIds) ? saved.playerIds : form.playerIds
-                  });
-                }
-              })
+              emit("upsert-tournament", form)
+                .then((res: any) => {
+                  const saved = res.tournament;
+                  if (saved) {
+                    setForm({
+                      ...blank,
+                      ...saved,
+                      logo: saved.logo || form.logo || "",
+                      categoryId: saved.categoryId || form.categoryId,
+                      teamIds: Array.isArray(saved.teamIds) ? saved.teamIds : [],
+                      playerIds: Array.isArray(saved.playerIds) ? saved.playerIds : []
+                    });
+                  }
+                })
+                .catch((e: any) => alert(e.message || "Save failed — try again"))
             }
           >
             Save
@@ -218,8 +223,7 @@ export function TournamentsPanel({ admin, emit }: any) {
                   {t.endDate} · Auction {t.hasAuction ? "Yes" : "No"}
                 </p>
                 <p className="mt-1 text-sm">
-                  {(t.teamIds || []).length} teams ·{" "}
-                  {admin.players.filter((p: any) => (p.tournamentIds || []).includes(t.id)).length} players
+                  {(t.teamIds || []).length} teams · {(Array.isArray(t.playerIds) ? t.playerIds : []).length} players
                 </p>
               </div>
             </button>
@@ -248,12 +252,19 @@ export function PlayersPanel({ admin, emit }: any) {
   };
   const [form, setForm] = useState(blank);
   const [acplPreview, setAcplPreview] = useState<any>(null);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [bulkRole, setBulkRole] = useState("");
+  const [bulkBaseCr, setBulkBaseCr] = useState("");
+  const [mergeAbsorbId, setMergeAbsorbId] = useState("");
+  const [acplLinkQuery, setAcplLinkQuery] = useState("");
+  const [msg, setMsg] = useState("");
   const { setSport } = useApp();
   const sameSport = (x: any) => String(x.sport || "Cricket").toLowerCase() === String(form.sport || "Cricket").toLowerCase();
   const isCricket = String(form.sport || "Cricket").toLowerCase() === "cricket";
   const teams = admin.teams.filter((t: any) => t.categoryId === form.categoryId && sameSport(t));
   const sportTournaments = admin.tournaments.filter((t: any) => sameSport(t));
   const listedPlayers = admin.players.filter((p: any) => sameSport(p));
+  const acplPlayers = admin.acplHistory?.players || [];
 
   useEffect(() => {
     setSport(form.sport || "Cricket");
@@ -293,6 +304,54 @@ export function PlayersPanel({ admin, emit }: any) {
         ? form.tournamentIds.filter((x) => x !== id)
         : [...form.tournamentIds, id]
     });
+
+  const toggleSelect = (id: string) =>
+    setSelectedIds((ids) => (ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]));
+
+  const applyBulk = async () => {
+    try {
+      setMsg("");
+      const payload: any = { playerIds: selectedIds };
+      if (bulkRole) payload.role = bulkRole;
+      if (bulkBaseCr !== "") payload.basePrice = crToLakhs(bulkBaseCr);
+      const res: any = await emit("bulk-update-players", payload);
+      setMsg(`Updated ${res.updated || selectedIds.length} player(s).`);
+      setSelectedIds([]);
+      setBulkRole("");
+      setBulkBaseCr("");
+    } catch (e: any) {
+      setMsg(e.message || "Bulk update failed");
+    }
+  };
+
+  const mergeIntoSelected = async () => {
+    if (!form.id || !mergeAbsorbId) return;
+    if (!confirm("Merge the other player into this one? The other entry will be removed.")) return;
+    try {
+      setMsg("");
+      await emit("merge-players", { keepPlayerId: form.id, absorbPlayerId: mergeAbsorbId });
+      setMergeAbsorbId("");
+      setMsg("Players merged.");
+      setForm(blank);
+    } catch (e: any) {
+      setMsg(e.message || "Merge failed");
+    }
+  };
+
+  const linkAcpl = async () => {
+    if (!form.id || !acplLinkQuery.trim()) return;
+    try {
+      setMsg("");
+      const res: any = await emit("link-player-acpl", { playerId: form.id, acplName: acplLinkQuery.trim() });
+      setAcplPreview(res.summary);
+      setMsg(`Linked ACPL stats: ${res.acpl?.name || acplLinkQuery}`);
+      if (res.player) {
+        setForm((f) => ({ ...f, name: res.player.name || f.name }));
+      }
+    } catch (e: any) {
+      setMsg(e.message || "ACPL link failed");
+    }
+  };
 
   return (
     <div className="space-y-4">
@@ -345,7 +404,7 @@ export function PlayersPanel({ admin, emit }: any) {
           label="Base price (crores)"
           value={form.basePriceCr}
           onChange={(e) => setForm({ ...form, basePriceCr: e.target.value })}
-          placeholder="e.g. 2"
+          placeholder="Leave blank until set"
         />
         <div className="md:col-span-3">
           <p className="mb-3 text-sm font-bold uppercase tracking-wider" style={{ color: "var(--muted)" }}>
@@ -425,17 +484,78 @@ export function PlayersPanel({ admin, emit }: any) {
             variant="turf"
             onClick={() => {
               if (form.assignment === "team" && !form.teamId) return;
-              emit("upsert-player", {
+              const payload: any = {
                 ...form,
-                role: isCricket ? form.role : "Player",
-                basePrice: crToLakhs(form.basePriceCr)
-              });
+                role: isCricket ? form.role : "Player"
+              };
+              if (form.basePriceCr === "" || form.basePriceCr == null) {
+                if (!form.id) payload.basePrice = null;
+                else delete payload.basePrice;
+              } else {
+                payload.basePrice = crToLakhs(form.basePriceCr);
+              }
+              emit("upsert-player", payload);
               setForm({ ...blank, categoryId: form.categoryId, sport: form.sport, role: isCricket ? "Batsman" : "Player" });
             }}
           >
             {form.id ? "Save player" : "Add player"}
           </Button>
         </div>
+        {form.id ? (
+          <div className="md:col-span-3 space-y-3 rounded-xl p-3" style={{ background: "color-mix(in srgb, var(--accent) 8%, transparent)" }}>
+            <p className="text-xs font-bold uppercase tracking-wider" style={{ color: "var(--muted)" }}>
+              Merge / ACPL link
+            </p>
+            <div className="grid gap-3 md:grid-cols-2">
+              <Select label="Merge another player into this one" value={mergeAbsorbId} onChange={(e) => setMergeAbsorbId(e.target.value)}>
+                <option value="">Select duplicate to absorb…</option>
+                {listedPlayers
+                  .filter((p: any) => p.id !== form.id)
+                  .map((p: any) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                      {p.acplPlayerId ? " (has ACPL)" : ""}
+                    </option>
+                  ))}
+              </Select>
+              <div className="flex items-end">
+                <Button disabled={!mergeAbsorbId} onClick={mergeIntoSelected}>
+                  Merge into this player
+                </Button>
+              </div>
+              <Field
+                label="Link ACPL stats (name or pick)"
+                value={acplLinkQuery}
+                onChange={(e) => setAcplLinkQuery(e.target.value)}
+                placeholder="Type ACPL player name"
+                list="acpl-player-names"
+              />
+              <datalist id="acpl-player-names">
+                {acplPlayers.slice(0, 500).map((p: any) => (
+                  <option key={p.id} value={p.name} />
+                ))}
+              </datalist>
+              <div className="flex items-end gap-2">
+                <Button disabled={!acplLinkQuery.trim()} onClick={linkAcpl}>
+                  Link ACPL stats
+                </Button>
+                <Button
+                  onClick={async () => {
+                    const res: any = await emit("dedupe-players");
+                    setMsg(`Removed ${res.removed || 0} duplicate name(s).`);
+                  }}
+                >
+                  Dedupe same names
+                </Button>
+              </div>
+            </div>
+          </div>
+        ) : null}
+        {msg ? (
+          <p className="md:col-span-3 text-sm" style={{ color: "var(--turf)" }}>
+            {msg}
+          </p>
+        ) : null}
         <label className="text-xs md:col-span-3" style={{ color: "var(--muted)" }}>
           Bulk CSV: Name, Role, Sport, Category, Base Price (Cr), Team, Tournament, Photo URL
           <input
@@ -453,10 +573,44 @@ export function PlayersPanel({ admin, emit }: any) {
           </a>
         </label>
       </Card>
+
+      <Card className="space-y-3">
+        <h3 className="font-display text-2xl">Bulk update selected</h3>
+        <p className="text-xs" style={{ color: "var(--muted)" }}>
+          Select players in the table below, then apply playing type and/or base price.
+        </p>
+        <div className="grid gap-3 md:grid-cols-4">
+          {isCricket ? (
+            <Select label="Playing type" value={bulkRole} onChange={(e) => setBulkRole(e.target.value)}>
+              <option value="">No change</option>
+              {ROLES.map((r) => (
+                <option key={r} value={r}>
+                  {r}
+                </option>
+              ))}
+            </Select>
+          ) : null}
+          <Field
+            label="Base price (crores)"
+            value={bulkBaseCr}
+            onChange={(e) => setBulkBaseCr(e.target.value)}
+            placeholder="No change"
+          />
+          <div className="flex items-end gap-2 md:col-span-2">
+            <Button disabled={!selectedIds.length || (!bulkRole && bulkBaseCr === "")} variant="turf" onClick={applyBulk}>
+              Apply to {selectedIds.length || 0} selected
+            </Button>
+            <Button onClick={() => setSelectedIds(listedPlayers.map((p: any) => p.id))}>Select all</Button>
+            <Button onClick={() => setSelectedIds([])}>Clear</Button>
+          </div>
+        </div>
+      </Card>
+
       <div className="neu overflow-auto">
         <table className="w-full text-sm">
           <thead style={{ color: "var(--muted)" }}>
             <tr>
+              <th className="px-3 py-3 text-left"> </th>
               {(isCricket
                 ? ["Name", "Sport", "Type", "Category", "Base", "Team", "Tournaments", ""]
                 : ["Name", "Sport", "Category", "Base", "Team", "Tournaments", ""]
@@ -470,6 +624,9 @@ export function PlayersPanel({ admin, emit }: any) {
           <tbody>
             {listedPlayers.map((p: any) => (
               <tr key={p.id} className="border-t border-black/5">
+                <td className="px-3 py-2">
+                  <input type="checkbox" checked={selectedIds.includes(p.id)} onChange={() => toggleSelect(p.id)} />
+                </td>
                 <td className="px-4 py-2">
                   <div className="flex flex-wrap items-center gap-2">
                     <button
@@ -480,7 +637,8 @@ export function PlayersPanel({ admin, emit }: any) {
                           ...p,
                           sport: p.sport || "Cricket",
                           role: p.role || (String(p.sport || "").toLowerCase() === "cricket" ? "Batsman" : "Player"),
-                          basePriceCr: String(lakhsToCr(p.basePrice)),
+                          basePriceCr:
+                            p.basePrice == null || p.basePrice === "" ? "" : String(lakhsToCr(p.basePrice)),
                           assignment: p.assignment || (p.teamId ? "team" : "auction"),
                           tournamentIds: p.tournamentIds || []
                         })
@@ -491,6 +649,11 @@ export function PlayersPanel({ admin, emit }: any) {
                     <Link href={`/admin/players/${p.id}`} className="text-xs underline" style={{ color: "var(--muted)" }}>
                       details
                     </Link>
+                    {p.acplPlayerId ? (
+                      <span className="text-[10px] font-bold uppercase" style={{ color: "var(--turf)" }}>
+                        ACPL
+                      </span>
+                    ) : null}
                   </div>
                 </td>
                 <td className="px-4 py-2">{p.sport || "Cricket"}</td>
@@ -517,7 +680,7 @@ export function PlayersPanel({ admin, emit }: any) {
             ))}
             {!listedPlayers.length && (
               <tr>
-                <td colSpan={isCricket ? 8 : 7} className="px-4 py-8 text-center" style={{ color: "var(--muted)" }}>
+                <td colSpan={isCricket ? 9 : 8} className="px-4 py-8 text-center" style={{ color: "var(--muted)" }}>
                   No {form.sport} players yet.
                 </td>
               </tr>
@@ -540,6 +703,8 @@ export function TeamsPanel({ admin, emit }: any) {
     playerIds: [] as string[]
   };
   const [form, setForm] = useState(blank);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState("");
   const sameSport = (p: any) => String(p.sport || "Cricket").toLowerCase() === String(form.sport || "Cricket").toLowerCase();
   const players = admin.players.filter((p: any) => p.categoryId === form.categoryId && sameSport(p));
 
@@ -549,12 +714,36 @@ export function TeamsPanel({ admin, emit }: any) {
       playerIds: form.playerIds.includes(id) ? form.playerIds.filter((x) => x !== id) : [...form.playerIds, id]
     });
 
+  const saveTeam = async () => {
+    if (busy) return;
+    if (!String(form.name || "").trim()) {
+      alert("Enter a team name");
+      return;
+    }
+    setBusy(true);
+    setMsg("");
+    try {
+      await emit("upsert-team", form);
+      setMsg(form.id ? "Team saved" : "Team added");
+      setForm(blank);
+    } catch (e: any) {
+      alert(e?.message || "Could not save team");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <div className="space-y-4">
       <Card className="grid gap-3 md:grid-cols-3">
         <p className="md:col-span-3 text-xs" style={{ color: "var(--muted)" }}>
           Tag each team with a sport. Only players with the same sport and category can be added to the roster.
         </p>
+        {msg ? (
+          <p className="md:col-span-3 text-sm" style={{ color: "var(--aqua)" }}>
+            {msg}
+          </p>
+        ) : null}
         <Field label="Name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
         <Select
           label="Sport"
@@ -582,10 +771,30 @@ export function TeamsPanel({ admin, emit }: any) {
         <FilePick
           label="Upload logo"
           onData={async (dataUrl, file) => {
-            const res: any = await emit("upload", { dataUrl, filename: file.name });
-            setForm((f) => ({ ...f, logo: res.url }));
+            try {
+              const res: any = await emit("upload", { dataUrl, filename: file.name || "logo.jpg" });
+              const url = res?.url;
+              if (!url) throw new Error(res?.error || "Upload failed");
+              setForm((f) => ({ ...f, logo: url }));
+              setMsg("Logo uploaded — click Save team to keep it");
+            } catch (e: any) {
+              alert(e?.message || "Logo upload failed — try a smaller JPG/PNG (under 5 MB).");
+            }
           }}
         />
+        {form.logo ? (
+          <div className="flex items-center gap-3 md:col-span-3">
+            <img src={form.logo} alt="" className="h-14 w-14 rounded-xl object-cover" />
+            <Button onClick={() => setForm({ ...form, logo: "" })}>Remove logo</Button>
+            <p className="text-xs" style={{ color: "var(--muted)" }}>
+              Preview shown. Click Save team to persist.
+            </p>
+          </div>
+        ) : (
+          <p className="text-xs md:col-span-3" style={{ color: "var(--muted)" }}>
+            Upload a logo, wait for the preview, then click Save team.
+          </p>
+        )}
         <div className="md:col-span-3">
           <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider" style={{ color: "var(--muted)" }}>
             Players ({form.sport} · {admin.categories.find((c: any) => c.id === form.categoryId)?.name} only)
@@ -607,19 +816,23 @@ export function TeamsPanel({ admin, emit }: any) {
             )}
           </div>
         </div>
-        <Button
-          variant="turf"
-          onClick={() => {
-            emit("upsert-team", form);
-            setForm(blank);
-          }}
-        >
-          {form.id ? "Save team" : "Add team"}
+        <Button variant="turf" disabled={busy} onClick={saveTeam}>
+          {busy ? "Saving…" : form.id ? "Save team" : "Add team"}
         </Button>
       </Card>
       <div className="grid gap-3 md:grid-cols-2">
         {admin.teams.map((t: any) => (
           <Card key={t.id} className="flex items-center justify-between gap-3">
+            {t.logo ? (
+              <img src={t.logo} alt="" className="h-14 w-14 shrink-0 rounded-xl object-cover" />
+            ) : (
+              <div
+                className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl text-xs font-bold"
+                style={{ background: "color-mix(in srgb, var(--ink) 8%, transparent)", color: t.color }}
+              >
+                {(t.name || "?").slice(0, 2).toUpperCase()}
+              </div>
+            )}
             <Link href={`/admin/teams/${t.id}`} className="min-w-0 flex-1 text-left">
               <h3 className="font-display text-3xl" style={{ color: t.color }}>
                 {t.name}
@@ -634,10 +847,11 @@ export function TeamsPanel({ admin, emit }: any) {
                   setForm({
                     ...blank,
                     ...t,
+                    logo: t.logo || "",
                     sport: t.sport || "Cricket",
-                    playerIds:
-                      t.playerIds ||
-                      admin.players.filter((p: any) => p.teamId === t.id && p.assignment === "team").map((p: any) => p.id)
+                    playerIds: Array.isArray(t.playerIds)
+                      ? t.playerIds
+                      : admin.players.filter((p: any) => p.teamId === t.id && p.assignment === "team").map((p: any) => p.id)
                   })
                 }
               >
