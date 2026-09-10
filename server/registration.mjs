@@ -2,7 +2,7 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import { createHmac, randomBytes, timingSafeEqual } from "crypto";
-import { uid } from "./store.mjs";
+import { uid, saveUpload } from "./store.mjs";
 import { buildAcplSeason6Form, blankRegistrationForm, normalizePublicSlug, suggestPublicSlug } from "./registration-template-acpl6.mjs";
 import { findAcplPlayer } from "./acpl.mjs";
 
@@ -894,7 +894,9 @@ export function activateRegistrationPlayer(store, registration, { saveUploadFn }
   const form = store.registrationForms.find((f) => f.id === registration.formId);
   if (!form) throw new Error("Form not found");
 
-  const publicPhotoUrl = resolveRegistrationPlayerPhoto(store, registration, saveUploadFn);
+  // Default to shared saveUpload when callers forget to pass it (keeps photos on promote)
+  const materialize = saveUploadFn || saveUpload;
+  const publicPhotoUrl = resolveRegistrationPlayerPhoto(store, registration, materialize);
 
   const player = findOrCreatePlayer(store, form, registration.values || {}, { publicPhotoUrl }, {
     attachToTournament: true,
@@ -904,6 +906,41 @@ export function activateRegistrationPlayer(store, registration, { saveUploadFn }
   // Always keep registration photo on the auction player when materialization succeeded
   if (publicPhotoUrl) player.photo = publicPhotoUrl;
   return player;
+}
+
+/**
+ * Rematerialize registration player photos onto auction player records.
+ * Use after deploy or when player.photo is missing / 404.
+ */
+export function syncRegistrationPhotos(store, { saveUploadFn, formId, force = false } = {}) {
+  ensureCollections(store);
+  if (!saveUploadFn) throw new Error("saveUploadFn required");
+  let updated = 0;
+  let skipped = 0;
+  for (const reg of store.registrations || []) {
+    if (formId && reg.formId !== formId) continue;
+    if (!reg.playerId) {
+      skipped += 1;
+      continue;
+    }
+    const player = store.players.find((p) => p.id === reg.playerId);
+    if (!player) {
+      skipped += 1;
+      continue;
+    }
+    if (!force && player.photo) {
+      skipped += 1;
+      continue;
+    }
+    const url = resolveRegistrationPlayerPhoto(store, reg, saveUploadFn);
+    if (!url) {
+      skipped += 1;
+      continue;
+    }
+    player.photo = url;
+    updated += 1;
+  }
+  return { updated, skipped };
 }
 
 /** Remove player from tournament roster when registration leaves active registered set. */

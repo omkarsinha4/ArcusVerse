@@ -38,7 +38,8 @@ import {
   unlinkPlayerFromAcpl,
   searchAcplPlayers,
   clearRegistrationBasePrices,
-  dedupePlayersByName
+  dedupePlayersByName,
+  syncRegistrationPhotos
 } from "./registration.mjs";
 
 function rosterFromTournament(store, tournament) {
@@ -713,6 +714,20 @@ export function attachSockets(io, store, urls) {
       wrap((p) => {
         requireRole(socket, STAFF);
         const result = clearRegistrationBasePrices(store, { formId: p.formId || null });
+        io.to("admin").emit("admin-state", adminState(store));
+        return { admin: adminState(store), ...result };
+      })
+    );
+
+    socket.on(
+      "sync-registration-photos",
+      wrap((p) => {
+        requireRole(socket, STAFF);
+        const result = syncRegistrationPhotos(store, {
+          saveUploadFn: saveUpload,
+          formId: p.formId || null,
+          force: p.force === true
+        });
         io.to("admin").emit("admin-state", adminState(store));
         return { admin: adminState(store), ...result };
       })

@@ -484,8 +484,31 @@ export function RegistrationPanel({ admin, emit }: any) {
                   >
                     Clear all registration base prices
                   </Button>
+                  <Button
+                    disabled={busy || !form?.id}
+                    onClick={async () => {
+                      try {
+                        setBusy(true);
+                        setMsg("");
+                        const res: any = await emit("sync-registration-photos", { formId: form.id, force: true });
+                        if (!res?.ok && res?.error) throw new Error(res.error);
+                        setMsg(
+                          `Synced registration photos onto ${res.updated || 0} player(s)${
+                            res.skipped ? ` (${res.skipped} skipped)` : ""
+                          }.`
+                        );
+                      } catch (e: any) {
+                        setMsg(e.message || "Failed to sync photos");
+                      } finally {
+                        setBusy(false);
+                      }
+                    }}
+                  >
+                    Sync registration photos to players
+                  </Button>
                   <p className="text-sm" style={{ color: "var(--muted)" }}>
-                    New registrations never get a default base. Use this to wipe any leftover defaults.
+                    New registrations never get a default base. Photos from “Upload player photo” attach to the auction
+                    player (details + hammer desk).
                   </p>
                 </div>
               </Card>
@@ -1168,10 +1191,24 @@ export function RegistrationPanel({ admin, emit }: any) {
                         Search ACPL history and select a player to attach stats to this registration.
                       </p>
                       {selectedReg.playerId ? (
-                        <p className="text-sm">
-                          Auction player:{" "}
-                          <strong>{linkedAuctionPlayer?.name || selectedReg.playerName || "—"}</strong>
-                        </p>
+                        <div className="flex flex-wrap items-center gap-3 text-sm">
+                          {linkedAuctionPlayer?.photo ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img
+                              src={linkedAuctionPlayer.photo}
+                              alt=""
+                              className="h-14 w-14 rounded-xl object-cover"
+                              style={{ outline: "1px solid color-mix(in srgb, var(--ink) 10%, transparent)" }}
+                            />
+                          ) : null}
+                          <p>
+                            Auction player:{" "}
+                            <strong>{linkedAuctionPlayer?.name || selectedReg.playerName || "—"}</strong>
+                            {!linkedAuctionPlayer?.photo ? (
+                              <span style={{ color: "var(--muted)" }}> · No photo on player yet</span>
+                            ) : null}
+                          </p>
+                        </div>
                       ) : (
                         <p className="text-sm" style={{ color: "var(--danger, #b91c1c)" }}>
                           No auction player on this registration yet. Promote / register first, then link.

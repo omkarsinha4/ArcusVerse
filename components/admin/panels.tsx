@@ -450,7 +450,27 @@ export function PlayersPanel({ admin, emit }: any) {
             </div>
           )}
         </div>
-        <FilePick label="Upload photo" onData={upload} />
+        <div className="space-y-2">
+          <FilePick label="Upload photo" onData={upload} />
+          {form.photo ? (
+            <div className="flex items-center gap-3">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={form.photo}
+                alt=""
+                className="h-16 w-16 rounded-xl object-cover"
+                style={{ outline: "1px solid color-mix(in srgb, var(--ink) 10%, transparent)" }}
+              />
+              <p className="text-xs" style={{ color: "var(--muted)" }}>
+                Current photo (from registration or upload)
+              </p>
+            </div>
+          ) : (
+            <p className="text-xs" style={{ color: "var(--muted)" }}>
+              No photo yet — registration “Upload player photo” attaches here automatically.
+            </p>
+          )}
+        </div>
         {form.name.trim().length >= 2 && (
           <div className="md:col-span-3">
             <AcplStatsCard acpl={acplPreview} />
@@ -630,10 +650,10 @@ export function PlayersPanel({ admin, emit }: any) {
             <tr>
               <th className="px-3 py-3 text-left"> </th>
               {(isCricket
-                ? ["Name", "ACPL stats", "Sport", "Type", "Category", "Base", "Team", "Tournaments", ""]
-                : ["Name", "ACPL stats", "Sport", "Category", "Base", "Team", "Tournaments", ""]
-              ).map((h) => (
-                <th key={h || "actions"} className="px-4 py-3 text-left">
+                ? ["Photo", "Name", "ACPL stats", "Sport", "Type", "Category", "Base", "Team", "Tournaments", ""]
+                : ["Photo", "Name", "ACPL stats", "Sport", "Category", "Base", "Team", "Tournaments", ""]
+              ).map((h, i) => (
+                <th key={`${h || "actions"}-${i}`} className="px-4 py-3 text-left">
                   {h}
                 </th>
               ))}
@@ -644,6 +664,23 @@ export function PlayersPanel({ admin, emit }: any) {
               <tr key={p.id} className="border-t border-black/5">
                 <td className="px-3 py-2">
                   <input type="checkbox" checked={selectedIds.includes(p.id)} onChange={() => toggleSelect(p.id)} />
+                </td>
+                <td className="px-2 py-2">
+                  <div
+                    className="h-10 w-10 overflow-hidden rounded-lg"
+                    style={{ background: "color-mix(in srgb, var(--ink) 6%, transparent)" }}
+                  >
+                    {p.photo ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={p.photo} alt="" className="h-full w-full object-cover" />
+                    ) : (
+                      <div className="flex h-full items-center justify-center text-[10px] font-bold" style={{ color: "var(--muted)" }}>
+                        {String(p.name || "?")
+                          .slice(0, 2)
+                          .toUpperCase()}
+                      </div>
+                    )}
+                  </div>
                 </td>
                 <td className="px-4 py-2">
                   <div className="flex flex-wrap items-center gap-2">
@@ -702,7 +739,7 @@ export function PlayersPanel({ admin, emit }: any) {
             ))}
             {!listedPlayers.length && (
               <tr>
-                <td colSpan={isCricket ? 10 : 9} className="px-4 py-8 text-center" style={{ color: "var(--muted)" }}>
+                <td colSpan={isCricket ? 11 : 10} className="px-4 py-8 text-center" style={{ color: "var(--muted)" }}>
                   No {form.sport} players yet.
                 </td>
               </tr>
