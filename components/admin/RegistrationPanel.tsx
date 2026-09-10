@@ -6,7 +6,7 @@ import { DynamicForm } from "@/components/registration/DynamicForm";
 import { AcplLinkPicker } from "@/components/admin/AcplLinkPicker";
 import { useApp } from "@/components/Providers";
 
-const TABS = ["Dashboard", "Form builder", "Settings", "Preview", "Registrations", "Waiting list"] as const;
+const TABS = ["Dashboard", "Form builder", "Settings", "Preview", "Registrations", "Auction teams", "Waiting list"] as const;
 
 const FIELD_TYPES = [
   "text",
@@ -208,6 +208,59 @@ export function RegistrationPanel({ admin, emit }: any) {
   }, [admin.registration, form?.id, filterStatus, search]);
 
   const waiting = regs.filter((r: any) => r.status === "waiting");
+
+  const auctionTeamGroups = useMemo(() => {
+    const all = (admin.registration?.registrations || []).filter((r: any) => r.formId === form?.id);
+    const teamField = (form?.fields || draft?.fields || []).find((f: any) => f.key === "auctionTeam");
+    const optionOrder: string[] = Array.isArray(teamField?.options) ? [...teamField.options] : [];
+    const buckets = new Map<string, any[]>();
+    const ensure = (key: string) => {
+      if (!buckets.has(key)) buckets.set(key, []);
+      return buckets.get(key)!;
+    };
+    for (const label of optionOrder) ensure(label);
+    for (const r of all) {
+      const representing = String(r.values?.auctionRepresent || "").toLowerCase() === "yes";
+      const team = String(r.values?.auctionTeam || "").trim();
+      let key: string;
+      if (representing && team) key = team;
+      else if (representing && !team) key = "Team not specified";
+      else key = "Not representing a team";
+      ensure(key).push(r);
+    }
+    const order = [
+      ...optionOrder,
+      ...[...buckets.keys()].filter((k) => !optionOrder.includes(k) && k !== "Not representing a team" && k !== "Team not specified"),
+      "Team not specified",
+      "Not representing a team"
+    ].filter((k, i, arr) => buckets.has(k) && arr.indexOf(k) === i);
+
+    return order.map((team) => {
+      const players = (buckets.get(team) || []).slice().sort((a: any, b: any) => {
+        const an = String(a.playerName || a.values?.playerName || "").toLowerCase();
+        const bn = String(b.playerName || b.values?.playerName || "").toLowerCase();
+        return an.localeCompare(bn);
+      });
+      const tourTeam = (admin.teams || []).find(
+        (t: any) => String(t.name || "").toLowerCase() === String(team).toLowerCase()
+      );
+      return {
+        team,
+        logo: tourTeam?.logo || "",
+        color: tourTeam?.color || "",
+        players: players.map((r: any) => {
+          const linked = (admin.players || []).find((p: any) => p.id === r.playerId);
+          return {
+            ...r,
+            photo: linked?.photo || "",
+            displayName: r.playerName || r.values?.playerName || "—",
+            category: r.category || r.values?.category || "—",
+            mobile: r.mobile || r.values?.mobile || ""
+          };
+        })
+      };
+    });
+  }, [admin.registration, admin.players, admin.teams, form?.id, form?.fields, draft?.fields]);
 
   const baseUrl = hello?.appUrl || (typeof window !== "undefined" ? window.location.origin : "");
   const publicPath = form?.publicSlug || form?.publicToken;
@@ -1322,6 +1375,110 @@ export function RegistrationPanel({ admin, emit }: any) {
                   </>
                 )}
               </Card>
+            </div>
+          ) : null}
+
+          {tab === "Auction teams" ? (
+            <div className="space-y-4">
+              <Card className="space-y-2">
+                <h2 className="font-display text-3xl">Players by auction team</h2>
+                <p className="text-sm" style={{ color: "var(--muted)" }}>
+                  Registrations grouped by the auction team they chose to represent. Cards show photo, category, and
+                  status.
+                </p>
+              </Card>
+              <div className="grid gap-4 lg:grid-cols-2">
+                {auctionTeamGroups.map((group) => (
+                  <Card key={group.team} className="space-y-3">
+                    <div className="flex flex-wrap items-center gap-3">
+                      {group.logo ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={group.logo}
+                          alt=""
+                          className="h-12 w-12 rounded-xl object-cover"
+                          style={{ outline: "1px solid color-mix(in srgb, var(--ink) 10%, transparent)" }}
+                        />
+                      ) : (
+                        <div
+                          className="flex h-12 w-12 items-center justify-center rounded-xl font-display text-lg"
+                          style={{
+                            background: group.color || "color-mix(in srgb, var(--accent) 18%, transparent)",
+                            color: "var(--ink)"
+                          }}
+                        >
+                          {String(group.team || "?")
+                            .slice(0, 2)
+                            .toUpperCase()}
+                        </div>
+                      )}
+                      <div className="min-w-0 flex-1">
+                        <h3 className="font-display text-2xl leading-tight">{group.team}</h3>
+                        <p className="text-sm" style={{ color: "var(--muted)" }}>
+                          {group.players.length} player{group.players.length === 1 ? "" : "s"}
+                        </p>
+                      </div>
+                    </div>
+                    {group.players.length ? (
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        {group.players.map((p: any) => (
+                          <button
+                            key={p.id}
+                            type="button"
+                            className="flex items-center gap-3 rounded-xl px-3 py-2 text-left"
+                            style={{
+                              background: "color-mix(in srgb, var(--ink) 4%, transparent)",
+                              outline: "1px solid color-mix(in srgb, var(--ink) 8%, transparent)"
+                            }}
+                            onClick={() => {
+                              setSelectedReg(p);
+                              setTab("Registrations");
+                            }}
+                          >
+                            <div
+                              className="h-12 w-12 shrink-0 overflow-hidden rounded-lg"
+                              style={{ background: "color-mix(in srgb, var(--ink) 8%, transparent)" }}
+                            >
+                              {p.photo ? (
+                                // eslint-disable-next-line @next/next/no-img-element
+                                <img src={p.photo} alt="" className="h-full w-full object-cover" />
+                              ) : (
+                                <div
+                                  className="flex h-full items-center justify-center text-xs font-bold"
+                                  style={{ color: "var(--muted)" }}
+                                >
+                                  {String(p.displayName || "?")
+                                    .slice(0, 2)
+                                    .toUpperCase()}
+                                </div>
+                              )}
+                            </div>
+                            <div className="min-w-0">
+                              <p className="truncate font-semibold">{p.displayName}</p>
+                              <p className="truncate text-xs" style={{ color: "var(--muted)" }}>
+                                {p.category}
+                                {p.status ? ` · ${p.status}` : ""}
+                                {p.paymentStatus ? ` · ${p.paymentStatus}` : ""}
+                              </p>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-sm" style={{ color: "var(--muted)" }}>
+                        No registrations for this team yet.
+                      </p>
+                    )}
+                  </Card>
+                ))}
+              </div>
+              {!auctionTeamGroups.length ? (
+                <Card>
+                  <p className="text-sm" style={{ color: "var(--muted)" }}>
+                    No registrations yet.
+                  </p>
+                </Card>
+              ) : null}
             </div>
           ) : null}
 
