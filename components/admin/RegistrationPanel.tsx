@@ -499,16 +499,28 @@ export function RegistrationPanel({ admin, emit }: any) {
               <FilePick
                 label="Registration header logo (optional override)"
                 onData={async (dataUrl, file) => {
-                  const res: any = await emit("upload", { dataUrl, filename: file.name });
-                  if (res.ok) setDraft({ ...draft, logo: res.url });
+                  try {
+                    const res: any = await emit("upload", { dataUrl, filename: file.name || "logo.jpg" });
+                    const url = res?.url;
+                    if (!res?.ok || !url) throw new Error(res?.error || "Upload failed");
+                    setDraft((d: any) => ({ ...d, logo: url }));
+                    setMsg("Header logo uploaded — click Save settings");
+                  } catch (e: any) {
+                    alert(e?.message || "Logo upload failed");
+                  }
                 }}
               />
               {(draft.logo || tournaments.find((t: any) => t.id === tournamentId)?.logo) && (
-                <img
-                  src={draft.logo || tournaments.find((t: any) => t.id === tournamentId)?.logo}
-                  alt=""
-                  className="h-16 w-16 rounded-xl object-cover"
-                />
+                <div className="flex flex-wrap items-center gap-3">
+                  <img
+                    src={draft.logo || tournaments.find((t: any) => t.id === tournamentId)?.logo}
+                    alt=""
+                    className="h-16 w-16 rounded-xl object-cover"
+                  />
+                  {draft.logo ? (
+                    <Button onClick={() => setDraft((d: any) => ({ ...d, logo: "" }))}>Remove override</Button>
+                  ) : null}
+                </div>
               )}
               <p className="text-xs" style={{ color: "var(--muted)" }}>
                 By default the public form uses the <strong>tournament logo</strong> from Tournaments. Upload here only to
@@ -653,16 +665,57 @@ export function RegistrationPanel({ admin, emit }: any) {
               </div>
               <FilePick
                 label="UPI QR code"
+                compress={false}
                 onData={async (dataUrl, file) => {
-                  const res: any = await emit("upload", { dataUrl, filename: file.name });
-                  if (res.ok) {
-                    setDraft({
-                      ...draft,
-                      payment: { ...draft.payment, upi: { ...draft.payment?.upi, qrUrl: res.url } }
-                    });
+                  try {
+                    const res: any = await emit("upload", { dataUrl, filename: file.name || "upi-qr.png" });
+                    const url = res?.url;
+                    if (!res?.ok || !url) throw new Error(res?.error || "Upload failed");
+                    setDraft((d: any) => ({
+                      ...d,
+                      payment: {
+                        ...(d.payment || {}),
+                        upi: { ...(d.payment?.upi || {}), qrUrl: url }
+                      }
+                    }));
+                    setMsg("UPI QR uploaded — click Save settings to publish it on the form");
+                  } catch (e: any) {
+                    alert(e?.message || "UPI QR upload failed — try a JPG/PNG under 5 MB.");
                   }
                 }}
               />
+              {draft.payment?.upi?.qrUrl ? (
+                <div className="flex flex-wrap items-center gap-3">
+                  <img
+                    src={draft.payment.upi.qrUrl}
+                    alt="UPI QR preview"
+                    className="h-40 w-40 rounded-xl object-contain"
+                    style={{ background: "#fff" }}
+                  />
+                  <div className="space-y-2">
+                    <p className="text-xs" style={{ color: "var(--muted)" }}>
+                      Preview shown. Click <strong>Save settings</strong> to keep it on the public form.
+                    </p>
+                    <Button
+                      onClick={() =>
+                        setDraft((d: any) => ({
+                          ...d,
+                          payment: {
+                            ...(d.payment || {}),
+                            upi: { ...(d.payment?.upi || {}), qrUrl: "" }
+                          }
+                        }))
+                      }
+                    >
+                      Remove QR
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <p className="text-xs" style={{ color: "var(--muted)" }}>
+                  Upload a clear QR image (PNG preferred). Wait for the preview, then Save settings.
+                </p>
+              )}
               <div className="neu-sm space-y-2 px-4 py-3">
                 <p className="text-xs font-bold uppercase tracking-widest" style={{ color: "var(--muted)" }}>
                   Public URL

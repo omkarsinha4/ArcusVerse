@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
@@ -271,11 +272,14 @@ export async function compressImageDataUrl(dataUrl: string, file: File, maxEdge 
 export function FilePick({
   label,
   accept,
-  onData
+  onData,
+  compress = true
 }: {
   label: string;
   accept?: string;
   onData: (dataUrl: string, file: File) => void | Promise<void>;
+  /** When false, keep the original image bytes (important for UPI QR codes). */
+  compress?: boolean;
 }) {
   const [busy, setBusy] = useState(false);
   return (
@@ -290,7 +294,7 @@ export function FilePick({
           const file = e.target.files?.[0];
           e.target.value = "";
           if (!file) return;
-          if (file.size < 2 * 1024) {
+          if (compress && file.size < 2 * 1024) {
             alert("Image is too small or invalid. Please choose a real logo (JPG/PNG, at least a few KB).");
             return;
           }
@@ -306,10 +310,10 @@ export function FilePick({
               reader.onerror = () => reject(new Error("Could not read file"));
               reader.readAsDataURL(file);
             });
-            // Always compress images so socket payloads stay small
-            const dataUrl = file.type.startsWith("image/") || /\.(jpe?g|png|webp|gif)$/i.test(file.name)
-              ? await compressImageDataUrl(raw, file, 1000, 0.7)
-              : raw;
+            const dataUrl =
+              compress && (file.type.startsWith("image/") || /\.(jpe?g|png|webp|gif)$/i.test(file.name))
+                ? await compressImageDataUrl(raw, file, 1000, 0.7)
+                : raw;
             await onData(dataUrl, file);
           } catch (err: any) {
             alert(err?.message || "Upload failed");
