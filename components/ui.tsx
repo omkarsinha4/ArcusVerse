@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { useApp } from "./Providers";
 import { SportBackdrop } from "./SportBackdrop";
