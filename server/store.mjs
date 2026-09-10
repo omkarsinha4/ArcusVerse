@@ -102,7 +102,19 @@ export function saveUpload(dataUrl, filename = "file") {
   fs.mkdirSync(UPLOAD_DIR, { recursive: true });
   const match = String(dataUrl).match(/^data:(.+);base64,(.+)$/);
   if (!match) throw new Error("Invalid image data");
-  const ext = (filename.split(".").pop() || "png").replace(/[^a-z0-9]/gi, "").slice(0, 4) || "png";
+  const mime = String(match[1] || "").toLowerCase();
+  const mimeExt =
+    mime.includes("jpeg") || mime.includes("jpg")
+      ? "jpg"
+      : mime.includes("png")
+        ? "png"
+        : mime.includes("webp")
+          ? "webp"
+          : mime.includes("gif")
+            ? "gif"
+            : "";
+  const fromName = (filename.split(".").pop() || "").replace(/[^a-z0-9]/gi, "").slice(0, 4).toLowerCase();
+  const ext = mimeExt || fromName || "jpg";
   const name = `${uid()}.${ext}`;
   fs.writeFileSync(path.join(UPLOAD_DIR, name), Buffer.from(match[2], "base64"));
   return `/uploads/${name}`;

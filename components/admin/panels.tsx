@@ -703,6 +703,8 @@ export function TeamsPanel({ admin, emit }: any) {
     playerIds: [] as string[]
   };
   const [form, setForm] = useState(blank);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState("");
   const sameSport = (p: any) => String(p.sport || "Cricket").toLowerCase() === String(form.sport || "Cricket").toLowerCase();
   const players = admin.players.filter((p: any) => p.categoryId === form.categoryId && sameSport(p));
 
@@ -712,12 +714,36 @@ export function TeamsPanel({ admin, emit }: any) {
       playerIds: form.playerIds.includes(id) ? form.playerIds.filter((x) => x !== id) : [...form.playerIds, id]
     });
 
+  const saveTeam = async () => {
+    if (busy) return;
+    if (!String(form.name || "").trim()) {
+      alert("Enter a team name");
+      return;
+    }
+    setBusy(true);
+    setMsg("");
+    try {
+      await emit("upsert-team", form);
+      setMsg(form.id ? "Team saved" : "Team added");
+      setForm(blank);
+    } catch (e: any) {
+      alert(e?.message || "Could not save team");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <div className="space-y-4">
       <Card className="grid gap-3 md:grid-cols-3">
         <p className="md:col-span-3 text-xs" style={{ color: "var(--muted)" }}>
           Tag each team with a sport. Only players with the same sport and category can be added to the roster.
         </p>
+        {msg ? (
+          <p className="md:col-span-3 text-sm" style={{ color: "var(--aqua)" }}>
+            {msg}
+          </p>
+        ) : null}
         <Field label="Name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
         <Select
           label="Sport"
@@ -745,10 +771,30 @@ export function TeamsPanel({ admin, emit }: any) {
         <FilePick
           label="Upload logo"
           onData={async (dataUrl, file) => {
-            const res: any = await emit("upload", { dataUrl, filename: file.name });
-            setForm((f) => ({ ...f, logo: res.url }));
+            try {
+              const res: any = await emit("upload", { dataUrl, filename: file.name || "logo.jpg" });
+              const url = res?.url;
+              if (!url) throw new Error(res?.error || "Upload failed");
+              setForm((f) => ({ ...f, logo: url }));
+              setMsg("Logo uploaded — click Save team to keep it");
+            } catch (e: any) {
+              alert(e?.message || "Logo upload failed — try a smaller JPG/PNG (under 5 MB).");
+            }
           }}
         />
+        {form.logo ? (
+          <div className="flex items-center gap-3 md:col-span-3">
+            <img src={form.logo} alt="" className="h-14 w-14 rounded-xl object-cover" />
+            <Button onClick={() => setForm({ ...form, logo: "" })}>Remove logo</Button>
+            <p className="text-xs" style={{ color: "var(--muted)" }}>
+              Preview shown. Click Save team to persist.
+            </p>
+          </div>
+        ) : (
+          <p className="text-xs md:col-span-3" style={{ color: "var(--muted)" }}>
+            Upload a logo, wait for the preview, then click Save team.
+          </p>
+        )}
         <div className="md:col-span-3">
           <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider" style={{ color: "var(--muted)" }}>
             Players ({form.sport} · {admin.categories.find((c: any) => c.id === form.categoryId)?.name} only)
@@ -770,19 +816,23 @@ export function TeamsPanel({ admin, emit }: any) {
             )}
           </div>
         </div>
-        <Button
-          variant="turf"
-          onClick={() => {
-            emit("upsert-team", form);
-            setForm(blank);
-          }}
-        >
-          {form.id ? "Save team" : "Add team"}
+        <Button variant="turf" disabled={busy} onClick={saveTeam}>
+          {busy ? "Saving…" : form.id ? "Save team" : "Add team"}
         </Button>
       </Card>
       <div className="grid gap-3 md:grid-cols-2">
         {admin.teams.map((t: any) => (
           <Card key={t.id} className="flex items-center justify-between gap-3">
+            {t.logo ? (
+              <img src={t.logo} alt="" className="h-14 w-14 shrink-0 rounded-xl object-cover" />
+            ) : (
+              <div
+                className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl text-xs font-bold"
+                style={{ background: "color-mix(in srgb, var(--ink) 8%, transparent)", color: t.color }}
+              >
+                {(t.name || "?").slice(0, 2).toUpperCase()}
+              </div>
+            )}
             <Link href={`/admin/teams/${t.id}`} className="min-w-0 flex-1 text-left">
               <h3 className="font-display text-3xl" style={{ color: t.color }}>
                 {t.name}
@@ -797,6 +847,7 @@ export function TeamsPanel({ admin, emit }: any) {
                   setForm({
                     ...blank,
                     ...t,
+                    logo: t.logo || "",
                     sport: t.sport || "Cricket",
                     playerIds: Array.isArray(t.playerIds)
                       ? t.playerIds

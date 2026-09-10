@@ -16,6 +16,7 @@ export default function TeamDetailPage() {
   const [err, setErr] = useState("");
   const [note, setNote] = useState("");
   const [editing, setEditing] = useState<any>(null);
+  const [logoBusy, setLogoBusy] = useState(false);
   const [form, setForm] = useState({
     name: "",
     role: "Batsman",
@@ -116,23 +117,85 @@ export default function TeamDetailPage() {
     }
   };
 
+  const saveTeamLogo = async (url: string) => {
+    setLogoBusy(true);
+    setErr("");
+    try {
+      await emit("upsert-team", {
+        ...team,
+        logo: url,
+        playerIds: Array.isArray(team.playerIds)
+          ? team.playerIds
+          : admin.players.filter((p: any) => p.teamId === team.id && p.assignment === "team").map((p: any) => p.id)
+      });
+      setNote(url ? "Team logo saved." : "Team logo removed.");
+    } catch (e: any) {
+      setErr(e?.message || "Could not save team logo");
+    } finally {
+      setLogoBusy(false);
+    }
+  };
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="font-display text-5xl" style={{ color: team.color }}>
-            {team.name}
-          </h1>
-          <p className="text-sm" style={{ color: "var(--muted)" }}>
-            {team.sport || "Cricket"} · {admin.categories.find((c: any) => c.id === team.categoryId)?.name} ·{" "}
-            {roster.length} players
-          </p>
+        <div className="flex min-w-0 items-center gap-4">
+          {team.logo ? (
+            <img src={team.logo} alt="" className="h-16 w-16 rounded-xl object-cover" />
+          ) : (
+            <div
+              className="flex h-16 w-16 items-center justify-center rounded-xl text-sm font-bold"
+              style={{ background: "color-mix(in srgb, var(--ink) 8%, transparent)", color: team.color }}
+            >
+              {(team.name || "?").slice(0, 2).toUpperCase()}
+            </div>
+          )}
+          <div>
+            <h1 className="font-display text-5xl" style={{ color: team.color }}>
+              {team.name}
+            </h1>
+            <p className="text-sm" style={{ color: "var(--muted)" }}>
+              {team.sport || "Cricket"} · {admin.categories.find((c: any) => c.id === team.categoryId)?.name} ·{" "}
+              {roster.length} players
+            </p>
+          </div>
         </div>
         <Button onClick={() => router.push("/admin/teams")}>All teams</Button>
       </div>
 
       {err && <p style={{ color: "var(--crimson)" }}>{err}</p>}
       {note && <p style={{ color: "var(--aqua)" }}>{note}</p>}
+
+      <Card className="grid gap-3 md:grid-cols-3">
+        <h2 className="font-display md:col-span-3 text-3xl">Team logo</h2>
+        <FilePick
+          label="Upload team photo / logo"
+          onData={async (dataUrl, file) => {
+            try {
+              const res: any = await emit("upload", { dataUrl, filename: file.name || "logo.jpg" });
+              const url = res?.url;
+              if (!url) throw new Error(res?.error || "Upload failed");
+              await saveTeamLogo(url);
+            } catch (e: any) {
+              setErr(e?.message || "Logo upload failed — try a smaller JPG/PNG (under 5 MB).");
+            }
+          }}
+        />
+        <div className="flex flex-wrap items-center gap-2 md:col-span-2">
+          {team.logo ? (
+            <>
+              <img src={team.logo} alt="" className="h-20 w-20 rounded-xl object-cover" />
+              <Button disabled={logoBusy} onClick={() => saveTeamLogo("")}>
+                Remove logo
+              </Button>
+            </>
+          ) : (
+            <p className="text-xs" style={{ color: "var(--muted)" }}>
+              Upload saves immediately — no extra Save click needed here.
+            </p>
+          )}
+        </div>
+      </Card>
 
       <Card className="grid gap-3 md:grid-cols-3">
         <h2 className="font-display md:col-span-3 text-3xl">{editing ? "Edit player" : "Add player (replacement)"}</h2>
@@ -152,10 +215,22 @@ export default function TeamDetailPage() {
         <FilePick
           label="Photo"
           onData={async (dataUrl, file) => {
-            const res: any = await emit("upload", { dataUrl, filename: file.name });
-            setForm((f) => ({ ...f, photo: res.url }));
+            try {
+              const res: any = await emit("upload", { dataUrl, filename: file.name || "photo.jpg" });
+              const url = res?.url;
+              if (!url) throw new Error(res?.error || "Upload failed");
+              setForm((f) => ({ ...f, photo: url }));
+            } catch (e: any) {
+              setErr(e?.message || "Photo upload failed");
+            }
           }}
         />
+        {form.photo ? (
+          <div className="flex items-center gap-3">
+            <img src={form.photo} alt="" className="h-14 w-14 rounded-xl object-cover" />
+            <Button onClick={() => setForm({ ...form, photo: "" })}>Remove photo</Button>
+          </div>
+        ) : null}
         <div className="md:col-span-3 flex flex-wrap gap-2">
           <Button variant="turf" onClick={savePlayer}>
             {editing ? "Save player" : "Add player"}

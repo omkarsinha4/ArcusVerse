@@ -569,7 +569,7 @@ export function attachSockets(io, store, urls) {
           }
         }
         io.to("admin").emit("admin-state", adminState(store));
-        return { admin: adminState(store) };
+        return { team, admin: adminState(store) };
       })
     );
 
