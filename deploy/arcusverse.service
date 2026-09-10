@@ -10,7 +10,7 @@ Environment=NODE_ENV=production
 Environment=PORT=3000
 Environment=PUBLIC_URL=http://3.16.112.125
 Environment=ADMIN_REG_EMAIL=omkarsinha4@gmail.com
-Environment=MAIL_FROM=ArcusVerse <omkarsinha4@gmail.com>
+Environment="MAIL_FROM=ArcusVerse <omkarsinha4@gmail.com>"
 Environment=SMTP_HOST=smtp.gmail.com
 Environment=SMTP_PORT=587
 Environment=SMTP_USER=omkarsinha4@gmail.com
