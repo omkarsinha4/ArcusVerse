@@ -140,6 +140,10 @@ export function RegistrationPanel({ admin, emit }: any) {
   const [busy, setBusy] = useState(false);
   const [draft, setDraft] = useState<any>(null);
   const [selectedFieldKey, setSelectedFieldKey] = useState("");
+  const [acplSearch, setAcplSearch] = useState("");
+  const [acplResults, setAcplResults] = useState<any[]>([]);
+  const [acplBusy, setAcplBusy] = useState(false);
+  const [acplMsg, setAcplMsg] = useState("");
 
   const form = useMemo(() => forms.find((f: any) => f.tournamentId === tournamentId) || null, [forms, tournamentId]);
 
@@ -165,6 +169,102 @@ export function RegistrationPanel({ admin, emit }: any) {
       if (res.ok) setDashboard(res.dashboard);
     });
   }, [form?.id, tab, admin.registration?.registrations?.length]);
+
+  useEffect(() => {
+    if (!selectedReg) {
+      setAcplSearch("");
+      setAcplResults([]);
+      setAcplMsg("");
+      return;
+    }
+    const name = selectedReg.values?.playerName || selectedReg.playerName || "";
+    setAcplSearch(name);
+    setAcplMsg("");
+  }, [selectedReg?.id]);
+
+  useEffect(() => {
+    if (!selectedReg?.playerId) {
+      setAcplResults([]);
+      return;
+    }
+    const q = acplSearch.trim();
+    let alive = true;
+    const t = setTimeout(async () => {
+      try {
+        setAcplBusy(true);
+        const res: any = await emit("search-acpl", { q, limit: 12 });
+        if (!alive) return;
+        if (res?.ok) setAcplResults(res.players || []);
+        else setAcplResults([]);
+      } catch {
+        if (alive) setAcplResults([]);
+      } finally {
+        if (alive) setAcplBusy(false);
+      }
+    }, 200);
+    return () => {
+      alive = false;
+      clearTimeout(t);
+    };
+  }, [acplSearch, selectedReg?.playerId, emit]);
+
+  // Keep selected registration in sync with admin-state (e.g. after ACPL link)
+  useEffect(() => {
+    if (!selectedReg?.id) return;
+    const next = (admin.registration?.registrations || []).find((r: any) => r.id === selectedReg.id);
+    if (!next) return;
+    if (
+      next.acplPlayerId !== selectedReg.acplPlayerId ||
+      next.acplName !== selectedReg.acplName ||
+      next.playerId !== selectedReg.playerId ||
+      next.status !== selectedReg.status ||
+      next.paymentStatus !== selectedReg.paymentStatus ||
+      next.basePrice !== selectedReg.basePrice
+    ) {
+      setSelectedReg(next);
+    }
+  }, [admin.registration?.registrations, selectedReg]);
+
+  const linkedAuctionPlayer = useMemo(() => {
+    if (!selectedReg?.playerId) return null;
+    return (admin.players || []).find((p: any) => p.id === selectedReg.playerId) || null;
+  }, [admin.players, selectedReg?.playerId]);
+
+  const linkAcplFromRegistration = async (acpl: { id: string; name: string }) => {
+    if (!selectedReg?.playerId) {
+      setAcplMsg("This registration has no linked auction player yet. Promote/register first.");
+      return;
+    }
+    try {
+      setAcplBusy(true);
+      setAcplMsg("");
+      const res: any = await emit("link-player-acpl", {
+        playerId: selectedReg.playerId,
+        acplPlayerId: acpl.id
+      });
+      if (!res?.ok && res?.error) throw new Error(res.error);
+      setAcplMsg(`Linked to ACPL stats: ${res.acpl?.name || acpl.name}`);
+    } catch (e: any) {
+      setAcplMsg(e.message || "Failed to link ACPL player");
+    } finally {
+      setAcplBusy(false);
+    }
+  };
+
+  const unlinkAcplFromRegistration = async () => {
+    if (!selectedReg?.playerId) return;
+    try {
+      setAcplBusy(true);
+      setAcplMsg("");
+      const res: any = await emit("unlink-player-acpl", { playerId: selectedReg.playerId });
+      if (!res?.ok && res?.error) throw new Error(res.error);
+      setAcplMsg("ACPL link removed.");
+    } catch (e: any) {
+      setAcplMsg(e.message || "Failed to unlink");
+    } finally {
+      setAcplBusy(false);
+    }
+  };
 
   const regs = useMemo(() => {
     const all = (admin.registration?.registrations || []).filter((r: any) => r.formId === form?.id);
@@ -433,6 +533,37 @@ export function RegistrationPanel({ admin, emit }: any) {
                   <Stat label="Registered" value={dashboard?.registered ?? "—"} />
                   <Stat label="Waiting" value={dashboard?.waiting ?? "—"} />
                   <Stat label="Today" value={dashboard?.today ?? "—"} />
+                </div>
+                <div className="flex flex-wrap items-center gap-2 pt-1">
+                  <Button
+                    variant="danger"
+                    disabled={busy || !form?.id}
+                    onClick={async () => {
+                      if (
+                        !confirm(
+                          "Clear base price for every auction player linked to registrations on this form? Admins can set base prices later."
+                        )
+                      ) {
+                        return;
+                      }
+                      try {
+                        setBusy(true);
+                        setMsg("");
+                        const res: any = await emit("clear-registration-base-prices", { formId: form.id });
+                        if (!res?.ok && res?.error) throw new Error(res.error);
+                        setMsg(`Cleared base price for ${res.cleared || 0} registration-linked player(s).`);
+                      } catch (e: any) {
+                        setMsg(e.message || "Failed to clear base prices");
+                      } finally {
+                        setBusy(false);
+                      }
+                    }}
+                  >
+                    Clear all registration base prices
+                  </Button>
+                  <p className="text-sm" style={{ color: "var(--muted)" }}>
+                    New registrations never get a default base. Use this to wipe any leftover defaults.
+                  </p>
                 </div>
               </Card>
 
@@ -1045,6 +1176,7 @@ export function RegistrationPanel({ admin, emit }: any) {
                         <th>#</th>
                         <th>Player</th>
                         <th>Category</th>
+                        <th>ACPL</th>
                         <th>Status</th>
                         <th>Payment</th>
                       </tr>
@@ -1061,6 +1193,7 @@ export function RegistrationPanel({ admin, emit }: any) {
                           <td>{r.categorySequence || r.sequence}</td>
                           <td>{r.playerName || r.values?.playerName}</td>
                           <td>{r.category || r.values?.category}</td>
+                          <td>{r.acplName || (r.acplPlayerId ? "Linked" : "—")}</td>
                           <td>
                             {r.status}
                             {r.waitingPosition ? ` #${r.waitingPosition}` : ""}
@@ -1100,6 +1233,147 @@ export function RegistrationPanel({ admin, emit }: any) {
                         </Button>
                       ))}
                     </div>
+
+                    <div
+                      className="space-y-3 rounded-xl p-3"
+                      style={{ background: "color-mix(in srgb, var(--accent) 8%, transparent)" }}
+                    >
+                      <p className="text-xs font-bold uppercase tracking-wider" style={{ color: "var(--muted)" }}>
+                        Link ACPL stats player
+                      </p>
+                      <p className="text-sm" style={{ color: "var(--muted)" }}>
+                        Search historical ACPL players and attach stats to this registration&apos;s auction player.
+                      </p>
+                      {selectedReg.playerId ? (
+                        <p className="text-sm">
+                          Auction player: <strong>{linkedAuctionPlayer?.name || selectedReg.playerName || "—"}</strong>
+                          {(selectedReg.acplPlayerId || linkedAuctionPlayer?.acplPlayerId) ? (
+                            <>
+                              {" "}
+                              · Linked:{" "}
+                              <strong style={{ color: "var(--turf)" }}>
+                                {selectedReg.acplName || linkedAuctionPlayer?.acplName}
+                              </strong>
+                            </>
+                          ) : (
+                            <span style={{ color: "var(--muted)" }}> · Not linked to ACPL yet</span>
+                          )}
+                        </p>
+                      ) : (
+                        <p className="text-sm" style={{ color: "var(--danger, #b91c1c)" }}>
+                          No auction player on this registration yet. Promote / register first, then link.
+                        </p>
+                      )}
+                      <Field
+                        label="Search ACPL stats"
+                        value={acplSearch}
+                        onChange={(e) => setAcplSearch(e.target.value)}
+                        placeholder="Type name to search…"
+                        disabled={!selectedReg.playerId || acplBusy}
+                      />
+                      <div className="max-h-56 space-y-1 overflow-y-auto">
+                        {acplResults.map((p: any) => {
+                          const already =
+                            (selectedReg.acplPlayerId || linkedAuctionPlayer?.acplPlayerId) === p.id;
+                          return (
+                            <div
+                              key={p.id}
+                              className="flex flex-wrap items-center justify-between gap-2 rounded-lg px-3 py-2 text-sm"
+                              style={{ background: "color-mix(in srgb, var(--ink) 4%, transparent)" }}
+                            >
+                              <div>
+                                <p className="font-semibold">{p.name}</p>
+                                <p className="text-xs" style={{ color: "var(--muted)" }}>
+                                  {p.seasonsCount || p.seasonsPlayed?.length || 0} season
+                                  {(p.seasonsCount || p.seasonsPlayed?.length || 0) === 1 ? "" : "s"}
+                                  {p.career?.matches != null ? ` · ${p.career.matches} matches` : ""}
+                                  {p.career?.runs != null ? ` · ${p.career.runs} runs` : ""}
+                                  {p.career?.wickets != null ? ` · ${p.career.wickets} wkts` : ""}
+                                </p>
+                              </div>
+                              <Button
+                                disabled={acplBusy || already}
+                                onClick={() => linkAcplFromRegistration(p)}
+                              >
+                                {already ? "Linked" : "Link"}
+                              </Button>
+                            </div>
+                          );
+                        })}
+                        {!acplBusy && selectedReg.playerId && acplSearch.trim() && !acplResults.length ? (
+                          <p className="text-sm" style={{ color: "var(--muted)" }}>
+                            No ACPL players match “{acplSearch.trim()}”.
+                          </p>
+                        ) : null}
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {(selectedReg.acplPlayerId || linkedAuctionPlayer?.acplPlayerId) ? (
+                          <Button variant="danger" disabled={acplBusy} onClick={unlinkAcplFromRegistration}>
+                            Unlink ACPL
+                          </Button>
+                        ) : null}
+                        <a
+                          className="text-sm underline"
+                          href="/admin/acpl"
+                          target="_blank"
+                          rel="noreferrer"
+                          style={{ color: "var(--accent)", alignSelf: "center" }}
+                        >
+                          Open ACPL Stats
+                        </a>
+                      </div>
+                      {acplMsg ? <p className="text-sm">{acplMsg}</p> : null}
+                    </div>
+
+                    {selectedReg.playerId ? (
+                      <div className="space-y-2 rounded-xl p-3" style={{ background: "color-mix(in srgb, var(--ink) 4%, transparent)" }}>
+                        <p className="text-xs font-bold uppercase tracking-wider" style={{ color: "var(--muted)" }}>
+                          Base price
+                        </p>
+                        <p className="text-sm">
+                          {linkedAuctionPlayer?.basePrice == null || linkedAuctionPlayer?.basePrice === "" ? (
+                            <span style={{ color: "var(--muted)" }}>Not set (correct for new registrations)</span>
+                          ) : (
+                            <>
+                              Current: <strong>{Number(linkedAuctionPlayer.basePrice) / 100} Cr</strong>
+                            </>
+                          )}
+                        </p>
+                        {linkedAuctionPlayer?.basePrice != null && linkedAuctionPlayer?.basePrice !== "" ? (
+                          <Button
+                            variant="danger"
+                            disabled={busy}
+                            onClick={async () => {
+                              try {
+                                setBusy(true);
+                                await emit("upsert-player", {
+                                  id: selectedReg.playerId,
+                                  name: linkedAuctionPlayer.name,
+                                  role: linkedAuctionPlayer.role,
+                                  categoryId: linkedAuctionPlayer.categoryId,
+                                  sport: linkedAuctionPlayer.sport,
+                                  photo: linkedAuctionPlayer.photo || "",
+                                  phone: linkedAuctionPlayer.phone || "",
+                                  teamId: linkedAuctionPlayer.teamId,
+                                  assignment: linkedAuctionPlayer.assignment || "auction",
+                                  tournamentIds: linkedAuctionPlayer.tournamentIds || [],
+                                  basePrice: null,
+                                  clearBasePrice: true
+                                });
+                                setMsg("Base price cleared for this player.");
+                              } catch (e: any) {
+                                setMsg(e.message || "Failed to clear base price");
+                              } finally {
+                                setBusy(false);
+                              }
+                            }}
+                          >
+                            Clear base price
+                          </Button>
+                        ) : null}
+                      </div>
+                    ) : null}
+
                     <Select
                       label="Payment status"
                       value={selectedReg.paymentStatus || "pending"}

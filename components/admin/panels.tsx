@@ -324,6 +324,21 @@ export function PlayersPanel({ admin, emit }: any) {
     }
   };
 
+  const clearBulkBase = async () => {
+    try {
+      setMsg("");
+      const res: any = await emit("bulk-update-players", {
+        playerIds: selectedIds,
+        clearBasePrice: true
+      });
+      setMsg(`Cleared base price for ${res.updated || selectedIds.length} player(s).`);
+      setSelectedIds([]);
+      setBulkBaseCr("");
+    } catch (e: any) {
+      setMsg(e.message || "Clear base failed");
+    }
+  };
+
   const mergeIntoSelected = async () => {
     if (!form.id || !mergeAbsorbId) return;
     if (!confirm("Merge the other player into this one? The other entry will be removed.")) return;
@@ -489,8 +504,8 @@ export function PlayersPanel({ admin, emit }: any) {
                 role: isCricket ? form.role : "Player"
               };
               if (form.basePriceCr === "" || form.basePriceCr == null) {
-                if (!form.id) payload.basePrice = null;
-                else delete payload.basePrice;
+                // Empty means no base price — clear on save (registration players must not keep a default)
+                payload.basePrice = null;
               } else {
                 payload.basePrice = crToLakhs(form.basePriceCr);
               }
@@ -500,6 +515,23 @@ export function PlayersPanel({ admin, emit }: any) {
           >
             {form.id ? "Save player" : "Add player"}
           </Button>
+          {form.id && form.basePriceCr !== "" && form.basePriceCr != null ? (
+            <Button
+              variant="danger"
+              onClick={() => {
+                emit("upsert-player", {
+                  ...form,
+                  role: isCricket ? form.role : "Player",
+                  basePrice: null,
+                  clearBasePrice: true
+                });
+                setForm({ ...form, basePriceCr: "" });
+                setMsg("Base price cleared.");
+              }}
+            >
+              Clear base price
+            </Button>
+          ) : null}
         </div>
         {form.id ? (
           <div className="md:col-span-3 space-y-3 rounded-xl p-3" style={{ background: "color-mix(in srgb, var(--accent) 8%, transparent)" }}>
@@ -524,7 +556,7 @@ export function PlayersPanel({ admin, emit }: any) {
                 </Button>
               </div>
               <Field
-                label="Link ACPL stats (name or pick)"
+                label="Link ACPL stats (search or pick)"
                 value={acplLinkQuery}
                 onChange={(e) => setAcplLinkQuery(e.target.value)}
                 placeholder="Type ACPL player name"
@@ -535,9 +567,48 @@ export function PlayersPanel({ admin, emit }: any) {
                   <option key={p.id} value={p.name} />
                 ))}
               </datalist>
+              <div className="md:col-span-2 max-h-40 space-y-1 overflow-y-auto">
+                {acplPlayers
+                  .filter((p: any) => {
+                    const q = acplLinkQuery.trim().toLowerCase();
+                    if (!q) return false;
+                    return String(p.name).toLowerCase().includes(q);
+                  })
+                  .slice(0, 8)
+                  .map((p: any) => (
+                    <div key={p.id} className="flex items-center justify-between gap-2 text-sm">
+                      <span>
+                        {p.name}
+                        <span style={{ color: "var(--muted)" }}>
+                          {" "}
+                          · {p.seasonsCount || 0} seasons
+                        </span>
+                      </span>
+                      <Button
+                        disabled={!form.id}
+                        onClick={async () => {
+                          try {
+                            setMsg("");
+                            const res: any = await emit("link-player-acpl", {
+                              playerId: form.id,
+                              acplPlayerId: p.id
+                            });
+                            setAcplPreview(res.summary);
+                            setAcplLinkQuery(p.name);
+                            setMsg(`Linked ACPL stats: ${res.acpl?.name || p.name}`);
+                          } catch (e: any) {
+                            setMsg(e.message || "ACPL link failed");
+                          }
+                        }}
+                      >
+                        Link
+                      </Button>
+                    </div>
+                  ))}
+              </div>
               <div className="flex items-end gap-2">
                 <Button disabled={!acplLinkQuery.trim()} onClick={linkAcpl}>
-                  Link ACPL stats
+                  Link by name
                 </Button>
                 <Button
                   onClick={async () => {
@@ -599,6 +670,9 @@ export function PlayersPanel({ admin, emit }: any) {
           <div className="flex items-end gap-2 md:col-span-2">
             <Button disabled={!selectedIds.length || (!bulkRole && bulkBaseCr === "")} variant="turf" onClick={applyBulk}>
               Apply to {selectedIds.length || 0} selected
+            </Button>
+            <Button disabled={!selectedIds.length} variant="danger" onClick={clearBulkBase}>
+              Clear base price
             </Button>
             <Button onClick={() => setSelectedIds(listedPlayers.map((p: any) => p.id))}>Select all</Button>
             <Button onClick={() => setSelectedIds([])}>Clear</Button>

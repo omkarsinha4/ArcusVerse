@@ -35,6 +35,9 @@ import {
   validateFormForOpen,
   mergeAuctionPlayers,
   linkPlayerToAcpl,
+  unlinkPlayerFromAcpl,
+  searchAcplPlayers,
+  clearRegistrationBasePrices,
   dedupePlayersByName
 } from "./registration.mjs";
 
@@ -593,9 +596,15 @@ export function attachSockets(io, store, urls) {
       "upsert-player",
       wrap((p) => {
         requireRole(socket, STAFF);
+        const clearBase = p.clearBasePrice === true || p.basePrice === null;
         const hasBase =
-          p.basePrice !== undefined && p.basePrice !== null && p.basePrice !== "" && !Number.isNaN(Number(p.basePrice));
-        const basePrice = hasBase ? Number(p.basePrice) : p.id ? undefined : null;
+          !clearBase &&
+          p.basePrice !== undefined &&
+          p.basePrice !== null &&
+          p.basePrice !== "" &&
+          !Number.isNaN(Number(p.basePrice));
+        // null = clear; number = set; undefined = leave unchanged on edit / null on create
+        const basePrice = clearBase ? null : hasBase ? Number(p.basePrice) : p.id ? undefined : null;
         const assignment = p.assignment || (p.teamId ? "team" : "auction");
         const teamId = assignment === "auction" ? null : p.teamId || null;
         if (teamId) {
@@ -643,16 +652,24 @@ export function attachSockets(io, store, urls) {
         const ids = Array.isArray(p.playerIds) ? p.playerIds : [];
         if (!ids.length) throw new Error("Select at least one player");
         const hasRole = p.role != null && String(p.role).trim() !== "";
+        const clearBase = p.clearBasePrice === true || p.basePrice === null;
         const hasBase =
-          p.basePrice !== undefined && p.basePrice !== null && p.basePrice !== "" && !Number.isNaN(Number(p.basePrice));
-        if (!hasRole && !hasBase) throw new Error("Choose a playing type and/or base price to apply");
+          !clearBase &&
+          p.basePrice !== undefined &&
+          p.basePrice !== null &&
+          p.basePrice !== "" &&
+          !Number.isNaN(Number(p.basePrice));
+        if (!hasRole && !hasBase && !clearBase) {
+          throw new Error("Choose a playing type and/or base price to apply");
+        }
         let updated = 0;
         for (const id of ids) {
           const i = store.players.findIndex((x) => x.id === id);
           if (i < 0) continue;
           const next = { ...store.players[i] };
           if (hasRole) next.role = String(p.role).trim();
-          if (hasBase) next.basePrice = Number(p.basePrice);
+          if (clearBase) next.basePrice = null;
+          else if (hasBase) next.basePrice = Number(p.basePrice);
           store.players[i] = next;
           updated += 1;
         }
@@ -680,6 +697,37 @@ export function attachSockets(io, store, urls) {
         return { admin: adminState(store), ...result, summary: acplCareerSummary(store, result.acpl.id) };
       })
     );
+
+    socket.on(
+      "unlink-player-acpl",
+      wrap((p) => {
+        requireRole(socket, STAFF);
+        const result = unlinkPlayerFromAcpl(store, p.playerId);
+        io.to("admin").emit("admin-state", adminState(store));
+        return { admin: adminState(store), ...result };
+      })
+    );
+
+    socket.on(
+      "clear-registration-base-prices",
+      wrap((p) => {
+        requireRole(socket, STAFF);
+        const result = clearRegistrationBasePrices(store, { formId: p.formId || null });
+        io.to("admin").emit("admin-state", adminState(store));
+        return { admin: adminState(store), ...result };
+      })
+    );
+
+    socket.on("search-acpl", (payload, cb) => {
+      try {
+        const players = searchAcplPlayers(store, payload?.q || payload?.query || "", {
+          limit: Number(payload?.limit) || 20
+        });
+        cb?.({ ok: true, players });
+      } catch (e) {
+        cb?.({ ok: false, error: e.message });
+      }
+    });
 
     socket.on(
       "dedupe-players",

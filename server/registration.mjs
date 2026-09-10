@@ -803,6 +803,73 @@ export function linkPlayerToAcpl(store, playerId, acplIdOrName) {
   return { player, acpl: match };
 }
 
+/** Clear ACPL stats link from an auction/registration player. */
+export function unlinkPlayerFromAcpl(store, playerId) {
+  ensureCollections(store);
+  const player = store.players.find((p) => p.id === playerId);
+  if (!player) throw new Error("Player not found");
+  player.acplPlayerId = null;
+  player.acplName = null;
+  return { player };
+}
+
+/**
+ * Clear base price for auction players linked to registrations of a form
+ * (or all registration-linked players when formId is omitted).
+ * Registration must not invent a base price — admin sets it later.
+ */
+export function clearRegistrationBasePrices(store, { formId } = {}) {
+  ensureCollections(store);
+  const playerIds = new Set(
+    (store.registrations || [])
+      .filter((r) => r.playerId && (!formId || r.formId === formId))
+      .map((r) => r.playerId)
+  );
+  let cleared = 0;
+  for (const p of store.players || []) {
+    if (!playerIds.has(p.id)) continue;
+    if (p.basePrice == null || p.basePrice === "") continue;
+    p.basePrice = null;
+    cleared += 1;
+  }
+  return { cleared, playerIds: [...playerIds] };
+}
+
+/** Substring search over ACPL history players (name). */
+export function searchAcplPlayers(store, query, { limit = 20 } = {}) {
+  const q = String(query || "")
+    .trim()
+    .toLowerCase();
+  const players = store.acplHistory?.players || [];
+  if (!q) return players.slice(0, limit).map((p) => ({
+    id: p.id,
+    name: p.name,
+    seasonsCount: p.seasonsCount,
+    seasonsPlayed: p.seasonsPlayed,
+    career: p.career
+  }));
+  const scored = [];
+  for (const p of players) {
+    const name = String(p.name || "").toLowerCase();
+    const norm = String(p.normalizedName || "").toLowerCase();
+    if (!name.includes(q) && !norm.includes(q)) continue;
+    const exact = name === q || norm === q;
+    const starts = name.startsWith(q) || norm.startsWith(q);
+    scored.push({
+      score: exact ? 0 : starts ? 1 : 2,
+      player: {
+        id: p.id,
+        name: p.name,
+        seasonsCount: p.seasonsCount,
+        seasonsPlayed: p.seasonsPlayed,
+        career: p.career
+      }
+    });
+  }
+  scored.sort((a, b) => a.score - b.score || a.player.name.localeCompare(b.player.name));
+  return scored.slice(0, limit).map((x) => x.player);
+}
+
 /** Match ACPL stats by player name and store link for auction UI. */
 export function linkPlayerAcplStats(store, player) {
   if (!player) return null;
@@ -827,21 +894,15 @@ export function activateRegistrationPlayer(store, registration, { saveUploadFn }
   const form = store.registrationForms.find((f) => f.id === registration.formId);
   if (!form) throw new Error("Form not found");
 
-  let publicPhotoUrl = "";
-  const photoId = registration.fileIds?.playerPhoto;
-  if (photoId && saveUploadFn) {
-    const photoFile = store.registrationFiles.find((f) => f.id === photoId);
-    if (photoFile) publicPhotoUrl = materializePlayerPhoto(store, photoFile, saveUploadFn) || "";
-  } else if (photoId) {
-    const existing = store.players.find((p) => p.id === registration.playerId);
-    publicPhotoUrl = existing?.photo || "";
-  }
+  const publicPhotoUrl = resolveRegistrationPlayerPhoto(store, registration, saveUploadFn);
 
   const player = findOrCreatePlayer(store, form, registration.values || {}, { publicPhotoUrl }, {
     attachToTournament: true,
     linkAcpl: true
   });
   registration.playerId = player.id;
+  // Always keep registration photo on the auction player when materialization succeeded
+  if (publicPhotoUrl) player.photo = publicPhotoUrl;
   return player;
 }
 
@@ -1109,13 +1170,32 @@ export function savePrivateUpload(store, { dataUrl, filename, fieldKey, formId, 
 
 /** Copy player photo into public uploads for auction UI when registering. */
 export function materializePlayerPhoto(store, file, saveUploadFn) {
-  if (!file) return "";
+  if (!file || !saveUploadFn) return "";
   const abs = path.join(PRIVATE_UPLOAD_DIR, file.storedFilename);
-  if (!fs.existsSync(abs)) return "";
+  if (!fs.existsSync(abs)) {
+    console.warn("[registration] player photo missing on disk", file.storedFilename);
+    return "";
+  }
   const buf = fs.readFileSync(abs);
   const b64 = buf.toString("base64");
-  const dataUrl = `data:${file.mimeType};base64,${b64}`;
-  return saveUploadFn(dataUrl, file.originalFilename || "photo.jpg");
+  const dataUrl = `data:${file.mimeType || "image/jpeg"};base64,${b64}`;
+  const url = saveUploadFn(dataUrl, file.originalFilename || "photo.jpg");
+  return url || "";
+}
+
+/** Resolve registration playerPhoto file id → public /uploads URL (always attach when present). */
+export function resolveRegistrationPlayerPhoto(store, registration, saveUploadFn) {
+  const photoId =
+    registration?.fileIds?.playerPhoto ||
+    registration?.fileIds?.photo ||
+    registration?.fileIds?.player_photo ||
+    "";
+  if (!photoId) return "";
+  const photoFile = (store.registrationFiles || []).find((f) => f.id === photoId);
+  if (!photoFile) return "";
+  if (saveUploadFn) return materializePlayerPhoto(store, photoFile, saveUploadFn) || "";
+  const existing = (store.players || []).find((p) => p.id === registration.playerId);
+  return existing?.photo || "";
 }
 
 export async function submitRegistration(store, { token, values, fileIds }, { saveUploadFn, performedBy, appUrl, sendEmail = true } = {}) {
@@ -1170,8 +1250,9 @@ export async function submitRegistration(store, { token, values, fileIds }, { sa
     }
 
     let publicPhotoUrl = "";
-    if (cleanFiles.playerPhoto && saveUploadFn) {
-      const photoFile = store.registrationFiles.find((f) => f.id === cleanFiles.playerPhoto);
+    const photoFileId = cleanFiles.playerPhoto || cleanFiles.photo || cleanFiles.player_photo;
+    if (photoFileId && saveUploadFn) {
+      const photoFile = store.registrationFiles.find((f) => f.id === photoFileId);
       publicPhotoUrl = materializePlayerPhoto(store, photoFile, saveUploadFn);
     }
 
@@ -1183,6 +1264,7 @@ export async function submitRegistration(store, { token, values, fileIds }, { sa
       { publicPhotoUrl },
       { attachToTournament: status === "registered", linkAcpl: status === "registered" }
     );
+    if (publicPhotoUrl) player.photo = publicPhotoUrl;
 
     const registration = {
       id: uid(),
@@ -1571,24 +1653,31 @@ export function registrationAdminState(store) {
   ensureCollections(store);
   return {
     forms: store.registrationForms,
-    registrations: store.registrations.map((r) => ({
-      id: r.id,
-      registrationId: r.registrationId,
-      tournamentId: r.tournamentId,
-      formId: r.formId,
-      formVersion: r.formVersion,
-      playerId: r.playerId,
-      sequence: r.sequence,
-      registeredAt: r.registeredAt,
-      status: r.status,
-      waitingPosition: r.waitingPosition,
-      paymentStatus: r.paymentStatus,
-      values: r.values,
-      fileIds: r.fileIds,
-      playerName: r.values?.playerName || "",
-      mobile: r.values?.mobile || "",
-      category: r.values?.category || ""
-    })),
+    registrations: store.registrations.map((r) => {
+      const player = store.players.find((p) => p.id === r.playerId);
+      return {
+        id: r.id,
+        registrationId: r.registrationId,
+        tournamentId: r.tournamentId,
+        formId: r.formId,
+        formVersion: r.formVersion,
+        playerId: r.playerId,
+        sequence: r.sequence,
+        categorySequence: r.categorySequence || r.sequence,
+        registeredAt: r.registeredAt,
+        status: r.status,
+        waitingPosition: r.waitingPosition,
+        paymentStatus: r.paymentStatus,
+        values: r.values,
+        fileIds: r.fileIds,
+        playerName: r.values?.playerName || player?.name || "",
+        mobile: r.values?.mobile || player?.phone || "",
+        category: r.values?.category || "",
+        acplPlayerId: player?.acplPlayerId || null,
+        acplName: player?.acplName || null,
+        basePrice: player?.basePrice ?? null
+      };
+    }),
     audits: store.registrationAudits.slice(-500)
   };
 }
