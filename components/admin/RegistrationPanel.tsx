@@ -191,7 +191,9 @@ export function RegistrationPanel({ admin, emit }: any) {
   const publicPath = form?.publicSlug || form?.publicToken;
   const publicUrl = registrationPublicUrl(baseUrl, publicPath);
   const draftPublicUrl = registrationPublicUrl(baseUrl, draft?.publicSlug || form?.publicToken);
-  const waShare = whatsappShareHref(draftPublicUrl || publicUrl, draft?.title || form?.title || "Registration");
+  // Dashboard always shares the saved/published slug; Settings may share an unsaved draft slug.
+  const waSharePublished = whatsappShareHref(publicUrl, form?.title || "Registration");
+  const waShareDraft = whatsappShareHref(draftPublicUrl || publicUrl, draft?.title || form?.title || "Registration");
 
   const refreshAdmin = (res: any) => {
     if (res?.admin) {
@@ -456,8 +458,13 @@ export function RegistrationPanel({ admin, emit }: any) {
                     >
                       Copy URL
                     </Button>
-                    {waShare ? (
-                      <a className="btn btn-turf inline-flex px-5 py-2.5 text-sm" href={waShare} target="_blank" rel="noreferrer">
+                    {waSharePublished ? (
+                      <a
+                        className="btn btn-turf inline-flex px-5 py-2.5 text-sm"
+                        href={waSharePublished}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
                         Share on WhatsApp
                       </a>
                     ) : null}
@@ -750,8 +757,13 @@ export function RegistrationPanel({ admin, emit }: any) {
                   >
                     Copy URL
                   </Button>
-                  {waShare ? (
-                    <a className="btn btn-turf inline-flex px-5 py-2.5 text-sm" href={waShare} target="_blank" rel="noreferrer">
+                  {waShareDraft ? (
+                    <a
+                      className="btn btn-turf inline-flex px-5 py-2.5 text-sm"
+                      href={waShareDraft}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
                       Share on WhatsApp
                     </a>
                   ) : null}
