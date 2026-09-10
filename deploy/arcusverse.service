@@ -8,7 +8,10 @@ User=ec2-user
 WorkingDirectory=/home/ec2-user/ArcusVerse
 Environment=NODE_ENV=production
 Environment=PORT=3000
-Environment=PUBLIC_URL=http://3.16.112.125:3000
+Environment=PUBLIC_URL=http://3.16.112.125
+Environment=ADMIN_REG_EMAIL=omkarsinha4@gmail.com
+Environment=MAIL_FROM=ArcusVerse <noreply@arcusverse.local>
+EnvironmentFile=-/home/ec2-user/ArcusVerse/deploy/production.env
 ExecStart=/usr/bin/node server.mjs
 Restart=always
 RestartSec=3

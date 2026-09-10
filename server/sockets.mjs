@@ -28,10 +28,14 @@ import {
   listRegistrations,
   updateRegistrationStatus,
   setPaymentStatus,
+  deleteRegistration,
   exportCsv,
   signFileAccess,
   getFormByTournament,
-  validateFormForOpen
+  validateFormForOpen,
+  mergeAuctionPlayers,
+  linkPlayerToAcpl,
+  dedupePlayersByName
 } from "./registration.mjs";
 
 function rosterFromTournament(store, tournament) {
@@ -85,7 +89,9 @@ function lotPayload(store, auction) {
           basePrice: player.basePrice,
           categoryId: player.categoryId,
           categoryName: store.categories.find((c) => c.id === player.categoryId)?.name || "",
-          acpl: acplCareerSummary(store, player.name)
+          acpl: player.acplPlayerId
+            ? acplCareerSummary(store, player.acplPlayerId) || acplCareerSummary(store, player.name)
+            : acplCareerSummary(store, player.name)
         }
       : null
   };
@@ -453,6 +459,7 @@ export function attachSockets(io, store, urls) {
             ? tournament.playerIds
             : [];
         tournament.playerIds = playerIds;
+        tournament.updatedAt = Date.now();
         const tIndex = store.tournaments.findIndex((t) => t.id === tournament.id);
         if (tIndex >= 0) store.tournaments[tIndex] = tournament;
 
@@ -467,6 +474,7 @@ export function attachSockets(io, store, urls) {
         const regForm = getFormByTournament(store, tournament.id);
         if (regForm) {
           if (body.logo) regForm.logo = body.logo;
+          else if (tournament.logo) regForm.logo = tournament.logo;
           const auctionTeam = (regForm.fields || []).find((f) => f.key === "auctionTeam");
           if (auctionTeam) {
             const names = body.teamIds
@@ -585,7 +593,9 @@ export function attachSockets(io, store, urls) {
       "upsert-player",
       wrap((p) => {
         requireRole(socket, STAFF);
-        const basePrice = Number(p.basePrice) || 200;
+        const hasBase =
+          p.basePrice !== undefined && p.basePrice !== null && p.basePrice !== "" && !Number.isNaN(Number(p.basePrice));
+        const basePrice = hasBase ? Number(p.basePrice) : p.id ? undefined : null;
         const assignment = p.assignment || (p.teamId ? "team" : "auction");
         const teamId = assignment === "auction" ? null : p.teamId || null;
         if (teamId) {
@@ -603,20 +613,81 @@ export function attachSockets(io, store, urls) {
           role: p.role || "Batsman",
           categoryId: p.categoryId,
           sport: p.sport || "Cricket",
-          basePrice,
           phone: p.phone || "",
           teamId,
           assignment,
           tournamentIds: Array.isArray(p.tournamentIds) ? p.tournamentIds : []
         };
+        if (basePrice !== undefined) body.basePrice = basePrice;
         if (p.id) {
           const i = store.players.findIndex((x) => x.id === p.id);
-          store.players[i] = { ...store.players[i], ...body, id: p.id };
+          const prev = store.players[i] || {};
+          store.players[i] = {
+            ...prev,
+            ...body,
+            id: p.id,
+            basePrice: basePrice !== undefined ? basePrice : prev.basePrice ?? null
+          };
         } else {
-          store.players.push({ id: uid(), ...body });
+          store.players.push({ id: uid(), basePrice: basePrice ?? null, ...body });
         }
         io.to("admin").emit("admin-state", adminState(store));
         return { admin: adminState(store) };
+      })
+    );
+
+    socket.on(
+      "bulk-update-players",
+      wrap((p) => {
+        requireRole(socket, STAFF);
+        const ids = Array.isArray(p.playerIds) ? p.playerIds : [];
+        if (!ids.length) throw new Error("Select at least one player");
+        const hasRole = p.role != null && String(p.role).trim() !== "";
+        const hasBase =
+          p.basePrice !== undefined && p.basePrice !== null && p.basePrice !== "" && !Number.isNaN(Number(p.basePrice));
+        if (!hasRole && !hasBase) throw new Error("Choose a playing type and/or base price to apply");
+        let updated = 0;
+        for (const id of ids) {
+          const i = store.players.findIndex((x) => x.id === id);
+          if (i < 0) continue;
+          const next = { ...store.players[i] };
+          if (hasRole) next.role = String(p.role).trim();
+          if (hasBase) next.basePrice = Number(p.basePrice);
+          store.players[i] = next;
+          updated += 1;
+        }
+        io.to("admin").emit("admin-state", adminState(store));
+        return { admin: adminState(store), updated };
+      })
+    );
+
+    socket.on(
+      "merge-players",
+      wrap((p) => {
+        requireRole(socket, STAFF);
+        const player = mergeAuctionPlayers(store, p.keepPlayerId, p.absorbPlayerId);
+        io.to("admin").emit("admin-state", adminState(store));
+        return { admin: adminState(store), player };
+      })
+    );
+
+    socket.on(
+      "link-player-acpl",
+      wrap((p) => {
+        requireRole(socket, STAFF);
+        const result = linkPlayerToAcpl(store, p.playerId, p.acplPlayerId || p.acplName || p.name);
+        io.to("admin").emit("admin-state", adminState(store));
+        return { admin: adminState(store), ...result, summary: acplCareerSummary(store, result.acpl.id) };
+      })
+    );
+
+    socket.on(
+      "dedupe-players",
+      wrap(() => {
+        requireRole(socket, STAFF);
+        const removed = dedupePlayersByName(store);
+        io.to("admin").emit("admin-state", adminState(store));
+        return { admin: adminState(store), removed };
       })
     );
 
@@ -1141,7 +1212,8 @@ export function attachSockets(io, store, urls) {
         requireRole(socket, REG_ADMIN);
         const who = socket.data.userId || socket.data.role || "admin";
         const registration = await updateRegistrationStatus(store, p.registrationId, p.status, who, {
-          confirmPromote: p.confirmPromote === true
+          confirmPromote: p.confirmPromote === true,
+          saveUploadFn: saveUpload
         });
         io.to("admin").emit("admin-state", adminState(store));
         return { admin: adminState(store), registration };
@@ -1153,9 +1225,22 @@ export function attachSockets(io, store, urls) {
       wrap((p) => {
         requireRole(socket, REG_ADMIN);
         const who = socket.data.userId || socket.data.role || "admin";
-        const registration = setPaymentStatus(store, p.registrationId, p.paymentStatus, who);
+        const registration = setPaymentStatus(store, p.registrationId, p.paymentStatus, who, {
+          saveUploadFn: saveUpload
+        });
         io.to("admin").emit("admin-state", adminState(store));
         return { admin: adminState(store), registration };
+      })
+    );
+
+    socket.on(
+      "reg-delete",
+      wrapAsync(async (p) => {
+        requireRole(socket, REG_ADMIN);
+        const who = socket.data.userId || socket.data.role || "admin";
+        const result = await deleteRegistration(store, p.registrationId, who, { saveUploadFn: saveUpload });
+        io.to("admin").emit("admin-state", adminState(store));
+        return { admin: adminState(store), ...result };
       })
     );
 

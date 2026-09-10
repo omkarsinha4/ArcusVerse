@@ -62,6 +62,28 @@ export default function AuctionPlayerDetailPage() {
           <p style={{ color: "var(--muted)" }}>No ACPL historical record matches this auction player name.</p>
         </Card>
       )}
+      <Card className="space-y-3">
+        <h2 className="font-display text-2xl">Link ACPL stats</h2>
+        <p className="text-sm" style={{ color: "var(--muted)" }}>
+          If this player came from registration, link them to the matching ACPL Stats entry (or merge a duplicate auction
+          player from the Players page).
+        </p>
+        <button
+          className="btn btn-turf px-4 py-2 text-sm"
+          type="button"
+          onClick={async () => {
+            try {
+              const res: any = await emit("link-player-acpl", { playerId: player.id, acplName: player.name });
+              setAcpl(res.summary);
+              setFull(res.acpl);
+            } catch (e: any) {
+              alert(e.message || "Link failed");
+            }
+          }}
+        >
+          Link ACPL by name
+        </button>
+      </Card>
     </div>
   );
 }
