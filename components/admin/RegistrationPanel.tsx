@@ -1189,6 +1189,7 @@ export function RegistrationPanel({ admin, emit }: any) {
                           selectedReg.playerName ||
                           ""
                         }
+                        acplPlayers={admin.acplHistory?.players || []}
                         onLinked={({ acpl }) => setMsg(`Linked ACPL stats: ${acpl?.name || ""}`)}
                         onUnlinked={() => setMsg("ACPL link removed.")}
                       />

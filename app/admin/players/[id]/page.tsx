@@ -88,6 +88,7 @@ export default function AuctionPlayerDetailPage() {
           linkedAcplId={player.acplPlayerId || null}
           linkedAcplName={player.acplName || null}
           initialQuery={player.acplName || player.name || ""}
+          acplPlayers={admin.acplHistory?.players || []}
           onLinked={({ summary, acpl: linked }) => {
             setAcpl(summary);
             setFull(linked || null);

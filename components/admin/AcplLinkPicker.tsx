@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Button, Field } from "@/components/ui";
 
 type AcplHit = {
@@ -12,7 +12,7 @@ type AcplHit = {
 };
 
 /**
- * Searchable ACPL stats dropdown — type to filter, click a row to link.
+ * Searchable ACPL stats dropdown — filters locally as you type (same as ACPL Stats page).
  */
 export function AcplLinkPicker({
   emit,
@@ -20,6 +20,7 @@ export function AcplLinkPicker({
   linkedAcplId,
   linkedAcplName,
   initialQuery = "",
+  acplPlayers = [],
   onLinked,
   onUnlinked
 }: {
@@ -28,11 +29,12 @@ export function AcplLinkPicker({
   linkedAcplId?: string | null;
   linkedAcplName?: string | null;
   initialQuery?: string;
+  /** Full ACPL history list from admin.acplHistory.players — filtered locally while typing */
+  acplPlayers?: AcplHit[];
   onLinked?: (info: { acpl: AcplHit; player?: any; summary?: any }) => void;
   onUnlinked?: () => void;
 }) {
   const [q, setQ] = useState(initialQuery);
-  const [results, setResults] = useState<AcplHit[]>([]);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
   const [open, setOpen] = useState(false);
@@ -42,30 +44,15 @@ export function AcplLinkPicker({
     setQ(linkedAcplName || initialQuery || "");
   }, [initialQuery, linkedAcplName, playerId]);
 
-  useEffect(() => {
-    if (!playerId) {
-      setResults([]);
-      return;
-    }
-    const query = q.trim();
-    let alive = true;
-    const t = setTimeout(async () => {
-      try {
-        setBusy(true);
-        const res: any = await emit("search-acpl", { q: query, limit: 20 });
-        if (!alive) return;
-        setResults(res?.ok ? res.players || [] : []);
-      } catch {
-        if (alive) setResults([]);
-      } finally {
-        if (alive) setBusy(false);
-      }
-    }, 160);
-    return () => {
-      alive = false;
-      clearTimeout(t);
-    };
-  }, [q, playerId, emit]);
+  // Active local filter while typing — same behavior as /admin/acpl search
+  const results = useMemo(() => {
+    const needle = q.trim().toLowerCase();
+    const list = Array.isArray(acplPlayers) ? acplPlayers : [];
+    const filtered = !needle
+      ? list
+      : list.filter((p) => String(p.name || "").toLowerCase().includes(needle));
+    return filtered.slice(0, 40);
+  }, [acplPlayers, q]);
 
   useEffect(() => {
     const onDoc = (e: MouseEvent) => {
@@ -124,7 +111,7 @@ export function AcplLinkPicker({
             Linked: <strong style={{ color: "var(--turf)" }}>{linkedAcplName || "ACPL player"}</strong>
           </>
         ) : (
-          <span style={{ color: "var(--muted)" }}>Not linked to ACPL stats yet — search and select below</span>
+          <span style={{ color: "var(--muted)" }}>Not linked to ACPL stats yet — type to filter and select</span>
         )}
       </p>
       <div className="relative">
@@ -137,8 +124,8 @@ export function AcplLinkPicker({
           }}
           onFocus={() => setOpen(true)}
           onClick={() => setOpen(true)}
-          placeholder="Type a name — dropdown appears to pick from"
-          disabled={!playerId || busy}
+          placeholder="Type to filter ACPL players…"
+          disabled={!playerId}
           autoComplete="off"
         />
         {open && playerId ? (
@@ -158,7 +145,11 @@ export function AcplLinkPicker({
                 borderBottom: "1px solid color-mix(in srgb, var(--ink) 8%, transparent)"
               }}
             >
-              {busy ? "Searching…" : `${results.length} ACPL player${results.length === 1 ? "" : "s"} — click to link`}
+              {results.length
+                ? `${results.length}${results.length >= 40 ? "+" : ""} match${results.length === 1 ? "" : "es"} — click to link`
+                : q.trim()
+                  ? "No matches"
+                  : "Type a name to filter"}
             </p>
             {results.map((p) => {
               const already = linkedAcplId === p.id;
@@ -188,7 +179,7 @@ export function AcplLinkPicker({
                 </button>
               );
             })}
-            {!busy && q.trim() && !results.length ? (
+            {q.trim() && !results.length ? (
               <p className="px-3 py-2 text-sm" style={{ color: "var(--muted)" }}>
                 No ACPL players match “{q.trim()}”.
               </p>

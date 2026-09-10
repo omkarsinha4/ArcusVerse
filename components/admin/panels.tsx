@@ -552,6 +552,7 @@ export function PlayersPanel({ admin, emit }: any) {
                   linkedAcplId={selectedLive?.acplPlayerId || null}
                   linkedAcplName={selectedLive?.acplName || null}
                   initialQuery={selectedLive?.acplName || form.name || ""}
+                  acplPlayers={admin.acplHistory?.players || []}
                   onLinked={({ summary, acpl }) => {
                     setAcplPreview(summary);
                     setMsg(`Linked ACPL stats: ${acpl?.name || ""}`);
