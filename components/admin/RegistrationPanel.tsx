@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Button, Card, Field, FilePick, Select } from "@/components/ui";
 import { DynamicForm } from "@/components/registration/DynamicForm";
 import { useApp } from "@/components/Providers";
+import { absoluteAppBase, registrationPublicUrl, whatsappShareHref } from "@/lib/publicUrl";
 
 const TABS = ["Dashboard", "Form builder", "Settings", "Preview", "Registrations", "Waiting list"] as const;
 
@@ -186,9 +187,11 @@ export function RegistrationPanel({ admin, emit }: any) {
 
   const waiting = regs.filter((r: any) => r.status === "waiting");
 
-  const baseUrl = hello?.appUrl || (typeof window !== "undefined" ? window.location.origin : "");
+  const baseUrl = absoluteAppBase(hello?.appUrl || (typeof window !== "undefined" ? window.location.origin : ""));
   const publicPath = form?.publicSlug || form?.publicToken;
-  const publicUrl = publicPath ? `${baseUrl}/register/${publicPath}` : "";
+  const publicUrl = registrationPublicUrl(baseUrl, publicPath);
+  const draftPublicUrl = registrationPublicUrl(baseUrl, draft?.publicSlug || form?.publicToken);
+  const waShare = whatsappShareHref(draftPublicUrl || publicUrl, draft?.title || form?.title || "Registration");
 
   const refreshAdmin = (res: any) => {
     if (res?.admin) {
@@ -426,6 +429,41 @@ export function RegistrationPanel({ admin, emit }: any) {
 
           {tab === "Dashboard" ? (
             <div className="grid gap-4">
+              {publicUrl ? (
+                <Card className="space-y-2">
+                  <p className="text-xs font-bold uppercase tracking-widest" style={{ color: "var(--muted)" }}>
+                    Share registration link
+                  </p>
+                  <a
+                    href={publicUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="block break-all text-sm font-semibold underline"
+                    style={{ color: "var(--accent)" }}
+                  >
+                    {publicUrl}
+                  </a>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      onClick={async () => {
+                        try {
+                          await navigator.clipboard?.writeText(publicUrl);
+                          setMsg("Link copied — paste into WhatsApp");
+                        } catch {
+                          setMsg(publicUrl);
+                        }
+                      }}
+                    >
+                      Copy URL
+                    </Button>
+                    {waShare ? (
+                      <a className="btn btn-turf inline-flex px-5 py-2.5 text-sm" href={waShare} target="_blank" rel="noreferrer">
+                        Share on WhatsApp
+                      </a>
+                    ) : null}
+                  </div>
+                </Card>
+              ) : null}
               <Card className="space-y-3">
                 <h2 className="font-display text-3xl">Registration</h2>
                 <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
@@ -665,7 +703,7 @@ export function RegistrationPanel({ admin, emit }: any) {
               />
               <div className="neu-sm space-y-2 px-4 py-3">
                 <p className="text-xs font-bold uppercase tracking-widest" style={{ color: "var(--muted)" }}>
-                  Public URL
+                  Public URL (WhatsApp-ready)
                 </p>
                 <Field
                   label="Friendly path"
@@ -678,20 +716,46 @@ export function RegistrationPanel({ admin, emit }: any) {
                     })
                   }
                 />
-                <p className="break-all text-sm">
-                  {baseUrl}/register/<strong>{draft.publicSlug || "…"}</strong>
-                </p>
+                {draftPublicUrl ? (
+                  <a
+                    href={draftPublicUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="block break-all text-sm font-semibold underline"
+                    style={{ color: "var(--accent)" }}
+                  >
+                    {draftPublicUrl}
+                  </a>
+                ) : (
+                  <p className="break-all text-sm">
+                    {baseUrl}/register/<strong>{draft.publicSlug || "…"}</strong>
+                  </p>
+                )}
                 <p className="text-xs" style={{ color: "var(--muted)" }}>
-                  Letters, numbers, hyphens. Old secret token links still work.
+                  Full http:// link on one line — paste into WhatsApp as-is. Letters, numbers, hyphens only. Old token
+                  links still work.
                 </p>
-                <Button
-                  onClick={() => {
-                    navigator.clipboard?.writeText(`${baseUrl}/register/${draft.publicSlug || form.publicToken}`);
-                    setMsg("Public URL copied");
-                  }}
-                >
-                  Copy URL
-                </Button>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    onClick={async () => {
+                      const url = draftPublicUrl || registrationPublicUrl(baseUrl, draft.publicSlug || form.publicToken);
+                      if (!url) return;
+                      try {
+                        await navigator.clipboard?.writeText(url);
+                        setMsg("Public URL copied — paste into WhatsApp");
+                      } catch {
+                        setMsg(url);
+                      }
+                    }}
+                  >
+                    Copy URL
+                  </Button>
+                  {waShare ? (
+                    <a className="btn btn-turf inline-flex px-5 py-2.5 text-sm" href={waShare} target="_blank" rel="noreferrer">
+                      Share on WhatsApp
+                    </a>
+                  ) : null}
+                </div>
               </div>
               <div className="flex flex-wrap gap-2">
                 <Button variant="bid" disabled={busy} onClick={saveDraft}>
