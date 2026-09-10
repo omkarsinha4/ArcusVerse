@@ -127,7 +127,8 @@ export async function sendRegistrationEmails({ store, form, registration, appUrl
     },
     publicUrl
   });
-  const subject = `[${tournamentName}] Registration ${registration.registrationId}`;
+  const userSubject = `Thank you for registering — ${tournamentName} (${registration.registrationId})`;
+  const adminSubject = `New registration — ${tournamentName} (${registration.registrationId})`;
   const userEmail = String(registration.values?.email || "").trim();
 
   const tasks = [];
@@ -135,18 +136,23 @@ export async function sendRegistrationEmails({ store, form, registration, appUrl
     tasks.push(
       sendMail({
         to: userEmail,
-        subject,
-        html
+        subject: userSubject,
+        html,
+        bcc: ADMIN_REG_EMAIL
       }).catch((e) => console.error("[email] user confirmation failed", e.message))
     );
   }
+  // Always send a dedicated admin copy (even when registrant email is missing / BCC failed)
   tasks.push(
     sendMail({
       to: ADMIN_REG_EMAIL,
-      subject: `[Admin] ${subject}`,
+      subject: adminSubject,
       html
     }).catch((e) => console.error("[email] admin copy failed", e.message))
   );
+  if (!userEmail) {
+    console.warn("[email] registrant email missing — thank-you skipped; admin copy still sent");
+  }
   await Promise.all(tasks);
 }
 
