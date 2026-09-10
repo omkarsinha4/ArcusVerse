@@ -6,7 +6,9 @@ let transporter = null;
 let warned = false;
 
 function mailEnabled() {
-  return Boolean(process.env.SMTP_HOST || process.env.SMTP_URL);
+  // Require credentials so a half-configured SMTP_* does not attempt unauthenticated sends.
+  if (process.env.SMTP_URL) return true;
+  return Boolean(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS);
 }
 
 function getTransporter() {
