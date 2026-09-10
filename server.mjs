@@ -24,6 +24,9 @@ import { startDailyRegistrationReportScheduler } from "./server/email.mjs";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_UPLOAD_DIR = path.join(__dirname, "public", "uploads");
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const PUBLIC_UPLOAD_DIR = path.join(__dirname, "public", "uploads");
+
 const dev = process.env.NODE_ENV !== "production";
 const hostname = "0.0.0.0";
 const port = Number(process.env.PORT || 3000);
