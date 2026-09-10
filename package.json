@@ -9,7 +9,7 @@
     "start": "cross-env NODE_ENV=production node server.mjs",
     "lint": "next lint",
     "import:acpl": "node scripts/import-acpl.mjs",
-    "test": "node --test tests/acpl.test.mjs tests/registration.test.mjs tests/player-dedupe.test.mjs"
+    "test": "node --test tests/acpl.test.mjs tests/registration.test.mjs tests/player-dedupe.test.mjs && node --experimental-strip-types --test tests/publicUrl.test.mjs"
   },
   "dependencies": {
     "next": "^14.2.15",
