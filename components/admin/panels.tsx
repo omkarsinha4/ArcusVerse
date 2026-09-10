@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button, Card, ColorSelect, Field, FilePick, Select } from "@/components/ui";
 import { AcplStatsCard } from "@/components/AcplStats";
+import { AcplLinkPicker } from "@/components/admin/AcplLinkPicker";
 import { useApp } from "@/components/Providers";
 import { parseTableFile, inr, lakhsToCr, crToLakhs, defaultIncrementRows, incrementsToRows, rowsToIncrements } from "@/lib/format";
 
@@ -256,7 +257,6 @@ export function PlayersPanel({ admin, emit }: any) {
   const [bulkRole, setBulkRole] = useState("");
   const [bulkBaseCr, setBulkBaseCr] = useState("");
   const [mergeAbsorbId, setMergeAbsorbId] = useState("");
-  const [acplLinkQuery, setAcplLinkQuery] = useState("");
   const [msg, setMsg] = useState("");
   const { setSport } = useApp();
   const sameSport = (x: any) => String(x.sport || "Cricket").toLowerCase() === String(form.sport || "Cricket").toLowerCase();
@@ -264,7 +264,7 @@ export function PlayersPanel({ admin, emit }: any) {
   const teams = admin.teams.filter((t: any) => t.categoryId === form.categoryId && sameSport(t));
   const sportTournaments = admin.tournaments.filter((t: any) => sameSport(t));
   const listedPlayers = admin.players.filter((p: any) => sameSport(p));
-  const acplPlayers = admin.acplHistory?.players || [];
+  const selectedLive = form.id ? listedPlayers.find((p: any) => p.id === form.id) : null;
 
   useEffect(() => {
     setSport(form.sport || "Cricket");
@@ -350,21 +350,6 @@ export function PlayersPanel({ admin, emit }: any) {
       setForm(blank);
     } catch (e: any) {
       setMsg(e.message || "Merge failed");
-    }
-  };
-
-  const linkAcpl = async () => {
-    if (!form.id || !acplLinkQuery.trim()) return;
-    try {
-      setMsg("");
-      const res: any = await emit("link-player-acpl", { playerId: form.id, acplName: acplLinkQuery.trim() });
-      setAcplPreview(res.summary);
-      setMsg(`Linked ACPL stats: ${res.acpl?.name || acplLinkQuery}`);
-      if (res.player) {
-        setForm((f) => ({ ...f, name: res.player.name || f.name }));
-      }
-    } catch (e: any) {
-      setMsg(e.message || "ACPL link failed");
     }
   };
 
@@ -468,10 +453,7 @@ export function PlayersPanel({ admin, emit }: any) {
         <FilePick label="Upload photo" onData={upload} />
         {form.name.trim().length >= 2 && (
           <div className="md:col-span-3">
-            <AcplStatsCard
-              acpl={acplPreview}
-              href={acplPreview?.found && acplPreview?.id ? `/admin/acpl/${acplPreview.id}` : undefined}
-            />
+            <AcplStatsCard acpl={acplPreview} />
           </div>
         )}
         <div className="md:col-span-3">
@@ -546,69 +528,13 @@ export function PlayersPanel({ admin, emit }: any) {
                   .map((p: any) => (
                     <option key={p.id} value={p.id}>
                       {p.name}
-                      {p.acplPlayerId ? " (has ACPL)" : ""}
+                      {p.acplPlayerId ? ` · ACPL: ${p.acplName || "linked"}` : ""}
                     </option>
                   ))}
               </Select>
-              <div className="flex items-end">
+              <div className="flex items-end gap-2">
                 <Button disabled={!mergeAbsorbId} onClick={mergeIntoSelected}>
                   Merge into this player
-                </Button>
-              </div>
-              <Field
-                label="Link ACPL stats (search or pick)"
-                value={acplLinkQuery}
-                onChange={(e) => setAcplLinkQuery(e.target.value)}
-                placeholder="Type ACPL player name"
-                list="acpl-player-names"
-              />
-              <datalist id="acpl-player-names">
-                {acplPlayers.slice(0, 500).map((p: any) => (
-                  <option key={p.id} value={p.name} />
-                ))}
-              </datalist>
-              <div className="md:col-span-2 max-h-40 space-y-1 overflow-y-auto">
-                {acplPlayers
-                  .filter((p: any) => {
-                    const q = acplLinkQuery.trim().toLowerCase();
-                    if (!q) return false;
-                    return String(p.name).toLowerCase().includes(q);
-                  })
-                  .slice(0, 8)
-                  .map((p: any) => (
-                    <div key={p.id} className="flex items-center justify-between gap-2 text-sm">
-                      <span>
-                        {p.name}
-                        <span style={{ color: "var(--muted)" }}>
-                          {" "}
-                          · {p.seasonsCount || 0} seasons
-                        </span>
-                      </span>
-                      <Button
-                        disabled={!form.id}
-                        onClick={async () => {
-                          try {
-                            setMsg("");
-                            const res: any = await emit("link-player-acpl", {
-                              playerId: form.id,
-                              acplPlayerId: p.id
-                            });
-                            setAcplPreview(res.summary);
-                            setAcplLinkQuery(p.name);
-                            setMsg(`Linked ACPL stats: ${res.acpl?.name || p.name}`);
-                          } catch (e: any) {
-                            setMsg(e.message || "ACPL link failed");
-                          }
-                        }}
-                      >
-                        Link
-                      </Button>
-                    </div>
-                  ))}
-              </div>
-              <div className="flex items-end gap-2">
-                <Button disabled={!acplLinkQuery.trim()} onClick={linkAcpl}>
-                  Link by name
                 </Button>
                 <Button
                   onClick={async () => {
@@ -618,6 +544,23 @@ export function PlayersPanel({ admin, emit }: any) {
                 >
                   Dedupe same names
                 </Button>
+              </div>
+              <div className="md:col-span-2">
+                <AcplLinkPicker
+                  emit={emit}
+                  playerId={form.id}
+                  linkedAcplId={selectedLive?.acplPlayerId || null}
+                  linkedAcplName={selectedLive?.acplName || null}
+                  initialQuery={selectedLive?.acplName || form.name || ""}
+                  onLinked={({ summary, acpl }) => {
+                    setAcplPreview(summary);
+                    setMsg(`Linked ACPL stats: ${acpl?.name || ""}`);
+                  }}
+                  onUnlinked={() => {
+                    setAcplPreview(null);
+                    setMsg("ACPL link removed.");
+                  }}
+                />
               </div>
             </div>
           </div>
@@ -686,8 +629,8 @@ export function PlayersPanel({ admin, emit }: any) {
             <tr>
               <th className="px-3 py-3 text-left"> </th>
               {(isCricket
-                ? ["Name", "Sport", "Type", "Category", "Base", "Team", "Tournaments", ""]
-                : ["Name", "Sport", "Category", "Base", "Team", "Tournaments", ""]
+                ? ["Name", "ACPL stats", "Sport", "Type", "Category", "Base", "Team", "Tournaments", ""]
+                : ["Name", "ACPL stats", "Sport", "Category", "Base", "Team", "Tournaments", ""]
               ).map((h) => (
                 <th key={h || "actions"} className="px-4 py-3 text-left">
                   {h}
@@ -723,12 +666,16 @@ export function PlayersPanel({ admin, emit }: any) {
                     <Link href={`/admin/players/${p.id}`} className="text-xs underline" style={{ color: "var(--muted)" }}>
                       details
                     </Link>
-                    {p.acplPlayerId ? (
-                      <span className="text-[10px] font-bold uppercase" style={{ color: "var(--turf)" }}>
-                        ACPL
-                      </span>
-                    ) : null}
                   </div>
+                </td>
+                <td className="px-4 py-2">
+                  {p.acplPlayerId ? (
+                    <p className="font-semibold" style={{ color: "var(--turf)" }}>
+                      {p.acplName || "Linked"}
+                    </p>
+                  ) : (
+                    <span style={{ color: "var(--muted)" }}>—</span>
+                  )}
                 </td>
                 <td className="px-4 py-2">{p.sport || "Cricket"}</td>
                 {isCricket ? <td className="px-4 py-2">{p.role}</td> : null}
@@ -754,7 +701,7 @@ export function PlayersPanel({ admin, emit }: any) {
             ))}
             {!listedPlayers.length && (
               <tr>
-                <td colSpan={isCricket ? 9 : 8} className="px-4 py-8 text-center" style={{ color: "var(--muted)" }}>
+                <td colSpan={isCricket ? 10 : 9} className="px-4 py-8 text-center" style={{ color: "var(--muted)" }}>
                   No {form.sport} players yet.
                 </td>
               </tr>

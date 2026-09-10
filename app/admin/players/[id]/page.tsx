@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useAdmin } from "@/components/admin/AdminGate";
+import { AcplLinkPicker } from "@/components/admin/AcplLinkPicker";
 import { AcplCareerPanel, AcplStatsCard } from "@/components/AcplStats";
 import { Card } from "@/components/ui";
 import { inr } from "@/lib/format";
@@ -15,22 +16,35 @@ export default function AuctionPlayerDetailPage() {
   const [acpl, setAcpl] = useState<any>(null);
   const [full, setFull] = useState<any>(null);
 
-  useEffect(() => {
-    if (!player?.name) return;
-    let alive = true;
-    emit("get-acpl-player", { name: player.name })
-      .then((res: any) => {
-        if (!alive) return;
+  const refreshAcpl = async (p = player) => {
+    if (!p) return;
+    try {
+      if (p.acplPlayerId) {
+        const res: any = await emit("get-acpl-player", { id: p.acplPlayerId });
         setAcpl(res.summary);
         setFull(res.found ? res.player : null);
-      })
-      .catch(() => {
-        if (alive) setAcpl({ found: false });
-      });
+        return;
+      }
+      const res: any = await emit("get-acpl-player", { name: p.name });
+      setAcpl(res.summary);
+      setFull(res.found ? res.player : null);
+    } catch {
+      setAcpl({ found: false });
+      setFull(null);
+    }
+  };
+
+  useEffect(() => {
+    if (!player) return;
+    let alive = true;
+    refreshAcpl(player).then(() => {
+      if (!alive) return;
+    });
     return () => {
       alive = false;
     };
-  }, [emit, player?.name]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [emit, player?.id, player?.acplPlayerId, player?.name]);
 
   if (!player) {
     return (
@@ -50,39 +64,40 @@ export default function AuctionPlayerDetailPage() {
       </Link>
       <Card className="space-y-3">
         <h1 className="font-display text-5xl">{player.name}</h1>
-          <p className="text-sm" style={{ color: "var(--muted)" }}>
-            {player.sport || "Cricket"} · {player.role} ·{" "}
-            {admin.categories.find((c: any) => c.id === player.categoryId)?.name} · Base {inr(player.basePrice)}
-          </p>
-        <AcplStatsCard acpl={acpl} href={full?.id ? `/admin/acpl/${full.id}` : undefined} />
+        <p className="text-sm" style={{ color: "var(--muted)" }}>
+          {player.sport || "Cricket"} · {player.role} ·{" "}
+          {admin.categories.find((c: any) => c.id === player.categoryId)?.name} · Base {inr(player.basePrice)}
+          {player.acplName ? (
+            <>
+              {" "}
+              · ACPL: <strong style={{ color: "var(--turf)" }}>{player.acplName}</strong>
+            </>
+          ) : null}
+        </p>
+        <AcplStatsCard acpl={acpl} />
       </Card>
       {full && <AcplCareerPanel player={full} />}
-      {!full && acpl && !acpl.found && (
-        <Card>
-          <p style={{ color: "var(--muted)" }}>No ACPL historical record matches this auction player name.</p>
-        </Card>
-      )}
       <Card className="space-y-3">
         <h2 className="font-display text-2xl">Link ACPL stats</h2>
         <p className="text-sm" style={{ color: "var(--muted)" }}>
-          If this player came from registration, link them to the matching ACPL Stats entry (or merge a duplicate auction
-          player from the Players page).
+          Search ACPL history and select the matching player to attach career stats.
         </p>
-        <button
-          className="btn btn-turf px-4 py-2 text-sm"
-          type="button"
-          onClick={async () => {
-            try {
-              const res: any = await emit("link-player-acpl", { playerId: player.id, acplName: player.name });
-              setAcpl(res.summary);
-              setFull(res.acpl);
-            } catch (e: any) {
-              alert(e.message || "Link failed");
-            }
+        <AcplLinkPicker
+          emit={emit}
+          playerId={player.id}
+          linkedAcplId={player.acplPlayerId || null}
+          linkedAcplName={player.acplName || null}
+          initialQuery={player.acplName || player.name || ""}
+          onLinked={({ summary, acpl: linked }) => {
+            setAcpl(summary);
+            setFull(linked || null);
+            refreshAcpl({ ...player, acplPlayerId: linked?.id, acplName: linked?.name });
           }}
-        >
-          Link ACPL by name
-        </button>
+          onUnlinked={() => {
+            setAcpl({ found: false });
+            setFull(null);
+          }}
+        />
       </Card>
     </div>
   );
