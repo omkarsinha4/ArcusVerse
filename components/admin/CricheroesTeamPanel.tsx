@@ -108,28 +108,46 @@ export function CricheroesTeamPanel({ team, emit }: { team: any; emit: (e: strin
   };
 
   const downloadImage = async () => {
-    const node = exportRef.current;
-    if (!node) return;
     try {
-      const { default: html2canvas } = await import("html2canvas").catch(() => ({ default: null as any }));
-      if (!html2canvas) {
-        // Fallback: rasterize via SVG foreignObject
-        const html = upcomingToHtml(team.name, upcoming);
-        const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="900" height="${Math.max(400, 160 + upcoming.length * 48)}">
-          <foreignObject width="100%" height="100%"><div xmlns="http://www.w3.org/1999/xhtml">${html.replace("<!doctype html>", "").replace(/<html>|<\/html>|<head>[\s\S]*?<\/head>|<body>|<\/body>/gi, "")}</div></foreignObject></svg>`;
-        const url = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
+      const html = upcomingToHtml(team.name, upcoming);
+      const height = Math.max(420, 180 + upcoming.length * 56);
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="900" height="${height}">
+        <foreignObject width="100%" height="100%"><div xmlns="http://www.w3.org/1999/xhtml">${html
+          .replace("<!doctype html>", "")
+          .replace(/<\/?html[^>]*>/gi, "")
+          .replace(/<head>[\s\S]*?<\/head>/gi, "")
+          .replace(/<\/?body[^>]*>/gi, "")}</div></foreignObject></svg>`;
+      const svgUrl = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        canvas.width = 900;
+        canvas.height = height;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) return;
+        ctx.fillStyle = "#f8fafc";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(img, 0, 0);
+        canvas.toBlob((blob) => {
+          if (!blob) {
+            // fallback raw svg
+            const a = document.createElement("a");
+            a.href = svgUrl;
+            a.download = `${team.name.replace(/\s+/g, "-").toLowerCase()}-upcoming.svg`;
+            a.click();
+            return;
+          }
+          downloadBlob(`${team.name.replace(/\s+/g, "-").toLowerCase()}-upcoming.png`, blob);
+        }, "image/png");
+      };
+      img.onerror = () => {
         const a = document.createElement("a");
-        a.href = url;
+        a.href = svgUrl;
         a.download = `${team.name.replace(/\s+/g, "-").toLowerCase()}-upcoming.svg`;
         a.click();
-        setMsg("Downloaded upcoming matches as SVG image.");
-        return;
-      }
-      const canvas = await html2canvas(node, { backgroundColor: "#f8fafc", scale: 2 });
-      canvas.toBlob((blob) => {
-        if (!blob) return;
-        downloadBlob(`${team.name.replace(/\s+/g, "-").toLowerCase()}-upcoming.png`, blob);
-      });
+      };
+      img.src = svgUrl;
+      setMsg("Preparing upcoming matches image…");
     } catch (e: any) {
       setMsg(e.message || "Image export failed");
     }
