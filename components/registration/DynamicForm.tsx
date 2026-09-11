@@ -172,6 +172,10 @@ export function DynamicForm({ form, mode = "public", onSubmit, uploadFile }: Pro
       return null;
     }
     if (f.fieldType === "file" || f.fieldType === "image") {
+      const accept =
+        f.fieldType === "image"
+          ? "image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"
+          : "image/jpeg,image/png,image/webp,application/pdf,.jpg,.jpeg,.png,.webp,.pdf";
       return (
         <div>
           <label className="mb-1 block text-sm font-semibold">
@@ -183,20 +187,42 @@ export function DynamicForm({ form, mode = "public", onSubmit, uploadFile }: Pro
               {f.description}
             </p>
           ) : null}
-          <input
-            type="file"
-            accept={
-              f.fieldType === "image"
-                ? "image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"
-                : "image/jpeg,image/png,image/webp,application/pdf,.jpg,.jpeg,.png,.webp,.pdf"
-            }
-            disabled={busy || mode === "preview"}
-            onChange={(e) => onFile(f, e.target.files?.[0] || null)}
-            className="field w-full text-sm"
-          />
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <label className="btn btn-ghost relative flex-1 cursor-pointer px-3 py-2 text-center text-sm">
+              Upload from gallery / files
+              <input
+                type="file"
+                accept={accept}
+                disabled={busy || mode === "preview"}
+                className="absolute inset-0 cursor-pointer opacity-0"
+                onChange={(e) => {
+                  const file = e.target.files?.[0] || null;
+                  e.target.value = "";
+                  onFile(f, file);
+                }}
+              />
+            </label>
+            {f.fieldType === "image" ? (
+              <label className="btn btn-ghost relative flex-1 cursor-pointer px-3 py-2 text-center text-sm">
+                Take photo
+                <input
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  disabled={busy || mode === "preview"}
+                  className="absolute inset-0 cursor-pointer opacity-0"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0] || null;
+                    e.target.value = "";
+                    onFile(f, file);
+                  }}
+                />
+              </label>
+            ) : null}
+          </div>
           <p className="mt-1 text-xs" style={{ color: "var(--muted)" }}>
             {f.fieldType === "image"
-              ? "Choose from gallery or files (camera is also available on mobile)."
+              ? "Use Gallery / files to pick an existing photo, or Take photo for the camera."
               : "Upload from gallery or files (JPG, PNG, or PDF)."}
           </p>
           {fileNames[f.key] ? (
@@ -286,24 +312,47 @@ export function DynamicForm({ form, mode = "public", onSubmit, uploadFile }: Pro
       );
     }
     return (
-      <Field
-        label={`${f.label}${required[f.key] ? " *" : ""}`}
-        type={f.fieldType === "date" ? "date" : f.fieldType === "number" || f.fieldType === "currency" ? "number" : f.fieldType === "email" ? "email" : f.fieldType === "phone" ? "tel" : "text"}
-        value={values[f.key] || ""}
-        placeholder={f.placeholder}
-        disabled={busy || mode === "preview"}
-        inputMode={f.fieldType === "phone" ? "numeric" : undefined}
-        maxLength={f.fieldType === "phone" ? 10 : undefined}
-        pattern={f.fieldType === "phone" ? "[0-9]{10}" : undefined}
-        onChange={(e) => {
-          if (f.fieldType === "phone") {
-            const digits = e.target.value.replace(/\D/g, "").slice(0, 10);
-            setVal(f.key, digits);
-            return;
-          }
-          setVal(f.key, e.target.value);
-        }}
-      />
+      <div>
+        <Field
+          label={`${f.label}${required[f.key] ? " *" : ""}`}
+          type={f.fieldType === "date" ? "date" : f.fieldType === "number" || f.fieldType === "currency" ? "number" : f.fieldType === "email" ? "email" : f.fieldType === "phone" ? "tel" : "text"}
+          value={values[f.key] || ""}
+          placeholder={f.placeholder}
+          disabled={busy || mode === "preview"}
+          inputMode={f.fieldType === "phone" ? "numeric" : undefined}
+          maxLength={f.fieldType === "phone" ? 10 : undefined}
+          pattern={f.fieldType === "phone" ? "[0-9]{10}" : undefined}
+          onChange={(e) => {
+            if (f.fieldType === "phone") {
+              const digits = e.target.value.replace(/\D/g, "").slice(0, 10);
+              setVal(f.key, digits);
+              if (digits.length > 0 && digits.length < 10) {
+                setErrors((err) => ({ ...err, [f.key]: "Mobile number must be exactly 10 digits" }));
+              }
+              return;
+            }
+            setVal(f.key, e.target.value);
+          }}
+          onBlur={() => {
+            if (f.fieldType !== "phone") return;
+            const digits = String(values[f.key] || "").replace(/\D/g, "");
+            if (!digits && !required[f.key]) return;
+            if (digits.length !== 10) {
+              setErrors((err) => ({ ...err, [f.key]: "Mobile number must be exactly 10 digits" }));
+            } else if (!/^[6-9]\d{9}$/.test(digits)) {
+              setErrors((err) => ({
+                ...err,
+                [f.key]: f.validation?.message || "Enter a valid 10-digit Indian mobile number"
+              }));
+            }
+          }}
+        />
+        {errors[f.key] ? (
+          <p className="mt-1 text-xs" style={{ color: "var(--danger, #b91c1c)" }}>
+            {errors[f.key]}
+          </p>
+        ) : null}
+      </div>
     );
   };
 
