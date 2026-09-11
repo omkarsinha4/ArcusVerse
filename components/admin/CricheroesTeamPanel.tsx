@@ -69,10 +69,11 @@ export function CricheroesTeamPanel({ team, emit }: { team: any; emit: (e: strin
       setBusy(true);
       setMsg("");
       const res: any = await emit("sync-cricheroes-team", { teamId: team.id, shareUrl });
+      const src = res.cache?.source;
       setMsg(
-        res.cache?.source === "api"
-          ? "Synced live Cricheroes API data."
-          : "Resolved Cricheroes profile links. Live stats need CRICHEROES_API_KEY (site blocks scrapers)."
+        src === "public_profile_seed"
+          ? "Loaded CricHeroes profile snapshot (stats, leaderboard, matches, members)."
+          : "Resolved CricHeroes profile links. No snapshot for this team yet — use Open live tabs."
       );
     } catch (e: any) {
       setMsg(e.message || "Sync failed");
@@ -287,7 +288,7 @@ export function CricheroesTeamPanel({ team, emit }: { team: any; emit: (e: strin
             ))}
             {!(cache?.stats || []).length ? (
               <p className="text-sm sm:col-span-2" style={{ color: "var(--muted)" }}>
-                No cached stats yet. Use “Open live stats” or configure CRICHEROES_API_KEY and sync.
+                No cached stats yet. Click “Sync from CricHeroes” to load the profile snapshot, or open live stats.
               </p>
             ) : null}
           </div>
