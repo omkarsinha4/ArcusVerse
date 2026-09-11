@@ -759,7 +759,8 @@ export function TeamsPanel({ admin, emit }: any) {
     logo: "",
     sport: "Cricket",
     categoryId: admin.categories[0]?.id,
-    playerIds: [] as string[]
+    playerIds: [] as string[],
+    cricheroesShareUrl: ""
   };
   const [form, setForm] = useState(blank);
   const sameSport = (p: any) => String(p.sport || "Cricket").toLowerCase() === String(form.sport || "Cricket").toLowerCase();
@@ -801,13 +802,23 @@ export function TeamsPanel({ admin, emit }: any) {
           ))}
         </Select>
         <ColorSelect label="Team color" value={form.color} onChange={(v) => setForm({ ...form, color: v })} />
+        <Field
+          label="CricHeroes share URL"
+          value={form.cricheroesShareUrl || ""}
+          onChange={(e) => setForm({ ...form, cricheroesShareUrl: e.target.value })}
+          placeholder="https://chshare.link/team/…"
+        />
         <FilePick
-          label="Upload logo"
+          label="Team logo / photo"
           onData={async (dataUrl, file) => {
             const res: any = await emit("upload", { dataUrl, filename: file.name });
             setForm((f) => ({ ...f, logo: res.url }));
           }}
         />
+        {form.logo ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={form.logo} alt="" className="h-16 w-16 rounded-xl object-cover" />
+        ) : null}
         <div className="md:col-span-3">
           <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider" style={{ color: "var(--muted)" }}>
             Players ({form.sport} · {admin.categories.find((c: any) => c.id === form.categoryId)?.name} only)

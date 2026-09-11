@@ -19,6 +19,11 @@ import { uid, pin4, hashPw, saveUpload, saveStore, DEFAULT_INCREMENTS, publicUse
 import { buildAuctionFixture } from "./schedule.mjs";
 import { importAcplHistory, defaultAcplDataRoot, findAcplPlayer, acplCareerSummary } from "./acpl.mjs";
 import {
+  applyAcpl6CricheroesLinks,
+  syncAllLinkedCricheroes,
+  syncTeamCricheroes
+} from "./cricheroes.mjs";
+import {
   createForm,
   upsertForm,
   setFormStatus,
@@ -532,7 +537,8 @@ export function attachSockets(io, store, urls) {
           categoryId: p.categoryId || store.categories[0]?.id,
           sport: p.sport || "Cricket",
           ownerId: p.ownerId || null,
-          playerIds: p.playerIds || []
+          playerIds: p.playerIds || [],
+          cricheroesShareUrl: p.cricheroesShareUrl != null ? String(p.cricheroesShareUrl).trim() : undefined
         };
         for (const id of body.playerIds) {
           const pl = store.players.find((x) => x.id === id);
@@ -546,10 +552,25 @@ export function attachSockets(io, store, urls) {
         let team;
         if (p.id) {
           const i = store.teams.findIndex((t) => t.id === p.id);
-          team = { ...store.teams[i], ...body, id: p.id, retentions: store.teams[i].retentions || [] };
+          const prev = store.teams[i] || {};
+          const nextBody = { ...body };
+          if (nextBody.cricheroesShareUrl === undefined) delete nextBody.cricheroesShareUrl;
+          team = {
+            ...prev,
+            ...nextBody,
+            id: p.id,
+            retentions: prev.retentions || [],
+            cricheroes: prev.cricheroes || null
+          };
           store.teams[i] = team;
         } else {
-          team = { id: uid(), retentions: [], ...body };
+          team = {
+            id: uid(),
+            retentions: [],
+            ...body,
+            cricheroesShareUrl: body.cricheroesShareUrl || "",
+            cricheroes: null
+          };
           store.teams.push(team);
         }
         for (const pl of store.players) {
@@ -590,6 +611,43 @@ export function attachSockets(io, store, urls) {
         });
         io.to("admin").emit("admin-state", adminState(store));
         return { admin: adminState(store) };
+      })
+    );
+
+    socket.on(
+      "sync-cricheroes-team",
+      wrapAsync(async (p) => {
+        requireRole(socket, STAFF);
+        const team = store.teams.find((t) => t.id === p.teamId);
+        if (!team) throw new Error("Team not found");
+        const result = await syncTeamCricheroes(store, team, { shareUrl: p.shareUrl });
+        io.to("admin").emit("admin-state", adminState(store));
+        return { admin: adminState(store), ...result };
+      })
+    );
+
+    socket.on(
+      "sync-all-cricheroes",
+      wrapAsync(async () => {
+        requireRole(socket, STAFF);
+        applyAcpl6CricheroesLinks(store);
+        const result = await syncAllLinkedCricheroes(store);
+        io.to("admin").emit("admin-state", adminState(store));
+        return { admin: adminState(store), ...result };
+      })
+    );
+
+    socket.on(
+      "save-cricheroes-upcoming",
+      wrap((p) => {
+        requireRole(socket, STAFF);
+        const team = store.teams.find((t) => t.id === p.teamId);
+        if (!team) throw new Error("Team not found");
+        team.cricheroes = team.cricheroes || {};
+        team.cricheroes.matches = team.cricheroes.matches || { past: [], upcoming: [] };
+        team.cricheroes.matches.upcoming = Array.isArray(p.upcoming) ? p.upcoming : [];
+        io.to("admin").emit("admin-state", adminState(store));
+        return { admin: adminState(store), team };
       })
     );
 
