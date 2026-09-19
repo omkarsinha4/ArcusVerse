@@ -253,7 +253,9 @@ export function publicState(store, auctionId) {
             ? {
                 ...current,
                 categoryName: catName(store, current.categoryId),
-                acpl: acplCareerSummary(store, current.name)
+                acpl: current.acplPlayerId
+                  ? acplCareerSummary(store, current.acplPlayerId) || acplCareerSummary(store, current.name)
+                  : acplCareerSummary(store, current.name)
               }
             : null,
           lastBidTeamName: lastTeam?.name || null,

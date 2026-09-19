@@ -52,7 +52,12 @@ function AdminGateInner({ children }: { children: React.ReactNode }) {
         /* */
       }
     }
-    return emit(event, payload, event === "upload" ? { timeoutMs: 90000 } : undefined);
+    const res = await emit(event, payload, event === "upload" ? { timeoutMs: 90000 } : undefined);
+    // Keep Players / Registration in sync after mutations (link ACPL, clear base, etc.)
+    if (res && typeof res === "object" && (res as any).admin) {
+      setAdmin((res as any).admin);
+    }
+    return res;
   };
 
   useEffect(() => {

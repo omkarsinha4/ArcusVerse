@@ -80,7 +80,12 @@ export default function PublicRegisterPage({ params }: { params: { token: string
                   <strong>Registration ID:</strong> {confirmation.registrationId}
                 </p>
                 <p>
-                  <strong>Registration Number:</strong> {confirmation.sequence}
+                  <strong>Category:</strong> {confirmation.category || "—"}
+                </p>
+                <p>
+                  <strong>Registration Number:</strong>{" "}
+                  {confirmation.categorySequence || confirmation.sequence}
+                  {confirmation.category ? ` (${confirmation.category})` : ""}
                 </p>
                 <p>
                   <strong>Registered At:</strong> {new Date(confirmation.registeredAt).toLocaleString()}

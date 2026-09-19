@@ -107,6 +107,15 @@ export function buildAcplSeason6Form(tournament, store) {
       validation: { pattern: "^[6-9]\\d{9}$", message: "Mobile number must be exactly 10 digits" }
     }),
     field({
+      key: "email",
+      sectionKey: "player",
+      label: "Email ID",
+      fieldType: "email",
+      required: true,
+      displayOrder: 25,
+      placeholder: "you@example.com"
+    }),
+    field({
       key: "dob",
       sectionKey: "player",
       label: "Date of Birth",
@@ -357,7 +366,43 @@ export function buildAcplSeason6Form(tournament, store) {
   const rules = [
     rule({ sourceKey: "firstTimeAcpl", operator: "equals", value: "Yes", targetKey: "playerType", action: "show", makeRequired: true }),
     rule({ sourceKey: "firstTimeAcpl", operator: "equals", value: "Yes", targetKey: "battingStyle", action: "show", makeRequired: true }),
-    rule({ sourceKey: "firstTimeAcpl", operator: "equals", value: "Yes", targetKey: "bowlingStyle", action: "show", makeRequired: true }),
+    // Bowling style only for Bowler / All-rounder (not Batter)
+    rule({
+      sourceKey: "firstTimeAcpl",
+      operator: "equals",
+      value: "Yes",
+      targetKey: "bowlingStyle",
+      action: "show",
+      makeRequired: true,
+      groupId: "bowling-bowler"
+    }),
+    rule({
+      sourceKey: "playerType",
+      operator: "equals",
+      value: "Bowler",
+      targetKey: "bowlingStyle",
+      action: "show",
+      makeRequired: true,
+      groupId: "bowling-bowler"
+    }),
+    rule({
+      sourceKey: "firstTimeAcpl",
+      operator: "equals",
+      value: "Yes",
+      targetKey: "bowlingStyle",
+      action: "show",
+      makeRequired: true,
+      groupId: "bowling-ar"
+    }),
+    rule({
+      sourceKey: "playerType",
+      operator: "equals",
+      value: "All-rounder",
+      targetKey: "bowlingStyle",
+      action: "show",
+      makeRequired: true,
+      groupId: "bowling-ar"
+    }),
     rule({ sourceKey: "firstTimeAcpl", operator: "equals", value: "Yes", targetKey: "wicketkeeper", action: "show", makeRequired: true }),
     rule({ sourceKey: "firstTimeAcpl", operator: "equals", value: "Yes", targetKey: "cricHeroesHas", action: "show", makeRequired: true }),
     rule({
