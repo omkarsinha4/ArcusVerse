@@ -7,6 +7,9 @@ import {
   validateSubmission,
   submitRegistration,
   updateRegistrationStatus,
+  setPaymentStatus,
+  linkPlayerToAcpl,
+  unlinkPlayerFromAcpl,
   createForm,
   setFormStatus,
   withRegLock
@@ -375,6 +378,112 @@ test("promote/verify attaches player to tournament and links ACPL by name", asyn
   assert.ok(player);
   assert.ok(tour.playerIds.includes(player.id));
   assert.equal(player.acplPlayerId, "acpl-1");
+});
+
+function acplPhotoFile(form) {
+  const photo = {
+    id: uid(),
+    formId: form.id,
+    fieldKey: "playerPhoto",
+    registrationId: null,
+    playerId: null,
+    originalFilename: "p.png",
+    storedFilename: `${uid()}.png`,
+    mimeType: "image/png",
+    fileSize: 10,
+    storagePath: "x.png",
+    uploadedAt: Date.now()
+  };
+  return photo;
+}
+
+test("admin ACPL link survives payment verify and promote", async () => {
+  const store = makeStore();
+  const form = await seedOpenForm(store, 5);
+  // The ACPL profile is spelled differently from the registration name, so name
+  // matching can never find it — which is exactly why an admin links it by hand.
+  store.acplHistory = {
+    meta: {},
+    players: [
+      {
+        id: "acpl-42",
+        name: "Omkar Sinha",
+        normalizedName: "omkar sinha",
+        career: { matches: 30, runs: 274, wickets: 2 },
+        seasonsPlayed: ["S5"]
+      }
+    ],
+    log: null
+  };
+
+  const photo = acplPhotoFile(form);
+  store.registrationFiles.push(photo);
+  const out = await submitRegistration(
+    store,
+    {
+      token: form.publicToken,
+      values: { ...baseValues(1), playerName: "Omkar S" },
+      fileIds: { playerPhoto: photo.id }
+    },
+    { saveUploadFn: () => "/uploads/p.png", sendEmail: false }
+  );
+
+  const stored = store.registrations.find((r) => r.values.playerName === "Omkar S");
+  const regId = stored.id;
+  const playerId = stored.playerId;
+  const player = () => store.players.find((p) => p.id === playerId);
+  assert.equal(player().acplPlayerId, null);
+
+  linkPlayerToAcpl(store, playerId, "acpl-42");
+  assert.equal(player().acplPlayerId, "acpl-42");
+
+  await setPaymentStatus(store, regId, "verified", "admin");
+  assert.equal(player().acplPlayerId, "acpl-42");
+  assert.equal(player().acplName, "Omkar Sinha");
+
+  await updateRegistrationStatus(store, regId, "waiting", "admin");
+  await updateRegistrationStatus(store, regId, "registered", "admin", { confirmPromote: true });
+  assert.equal(player().acplPlayerId, "acpl-42");
+  assert.equal(player().acplName, "Omkar Sinha");
+});
+
+test("explicit ACPL unlink is not re-attached by promote", async () => {
+  const store = makeStore();
+  const form = await seedOpenForm(store, 5);
+  store.acplHistory = {
+    meta: {},
+    players: [
+      {
+        id: "acpl-1",
+        name: "Player 1",
+        normalizedName: "player 1",
+        career: { matches: 10, runs: 200, wickets: 5 },
+        seasonsPlayed: ["S1"]
+      }
+    ],
+    log: null
+  };
+
+  const photo = acplPhotoFile(form);
+  store.registrationFiles.push(photo);
+  const out = await submitRegistration(
+    store,
+    { token: form.publicToken, values: baseValues(1), fileIds: { playerPhoto: photo.id } },
+    { saveUploadFn: () => "/uploads/p.png", sendEmail: false }
+  );
+
+  const stored = store.registrations.find((r) => r.values.playerName === "Player 1");
+  const regId = stored.id;
+  const playerId = stored.playerId;
+  const player = () => store.players.find((p) => p.id === playerId);
+  // Auto-linked on submit because the name matches
+  assert.equal(player().acplPlayerId, "acpl-1");
+
+  unlinkPlayerFromAcpl(store, playerId);
+  await setPaymentStatus(store, regId, "verified", "admin");
+  await updateRegistrationStatus(store, regId, "waiting", "admin");
+  await updateRegistrationStatus(store, regId, "registered", "admin", { confirmPromote: true });
+  assert.equal(player().acplPlayerId, null);
 });
 
 test("concurrent submissions never overflow capacity", async () => {
