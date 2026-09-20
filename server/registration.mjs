@@ -712,10 +712,12 @@ export function dedupePlayersByName(store) {
     if (loser.acplPlayerId && !winner.acplPlayerId) {
       winner.acplPlayerId = loser.acplPlayerId;
       winner.acplName = loser.acplName;
+      winner.acplLinkSource = loser.acplLinkSource;
     }
     if (keep.acplPlayerId && !winner.acplPlayerId) {
       winner.acplPlayerId = keep.acplPlayerId;
       winner.acplName = keep.acplName;
+      winner.acplLinkSource = keep.acplLinkSource;
     }
     if (Number.isFinite(Number(loser.basePrice)) && !Number.isFinite(Number(winner.basePrice))) {
       winner.basePrice = loser.basePrice;
@@ -762,6 +764,7 @@ export function mergeAuctionPlayers(store, keepPlayerId, absorbPlayerId) {
   if (absorb.acplPlayerId) {
     keep.acplPlayerId = absorb.acplPlayerId;
     keep.acplName = absorb.acplName || keep.acplName;
+    keep.acplLinkSource = absorb.acplLinkSource || keep.acplLinkSource;
   }
   if (Number.isFinite(Number(absorb.basePrice)) && !Number.isFinite(Number(keep.basePrice))) {
     keep.basePrice = absorb.basePrice;
@@ -796,6 +799,7 @@ export function linkPlayerToAcpl(store, playerId, acplIdOrName) {
   if (!match) throw new Error("No matching ACPL stats player found");
   player.acplPlayerId = match.id;
   player.acplName = match.name;
+  player.acplLinkSource = "manual";
   // Optionally align display name to ACPL canonical spelling
   if (normalizePlayerNameKey(player.name) === normalizePlayerNameKey(match.name)) {
     player.name = match.name;
@@ -810,6 +814,7 @@ export function unlinkPlayerFromAcpl(store, playerId) {
   if (!player) throw new Error("Player not found");
   player.acplPlayerId = null;
   player.acplName = null;
+  player.acplLinkSource = "manual-cleared";
   return { player };
 }
 
@@ -870,13 +875,37 @@ export function searchAcplPlayers(store, query, { limit = 20 } = {}) {
   return scored.slice(0, limit).map((x) => x.player);
 }
 
-/** Match ACPL stats by player name and store link for auction UI. */
-export function linkPlayerAcplStats(store, player) {
+/**
+ * Match ACPL stats by player name and store link for auction UI.
+ *
+ * Only fills a link that is not already set: registration names often differ from
+ * the ACPL spelling, so re-deriving from the name would drop an admin's link every
+ * time a registration is promoted or its payment is verified. Pass force to
+ * deliberately re-resolve from the current name.
+ */
+export function linkPlayerAcplStats(store, player, { force = false } = {}) {
   if (!player) return null;
+
+  if (!force) {
+    if (player.acplPlayerId) {
+      // Re-resolve so an ACPL re-import with new ids heals the stored link.
+      const linked = findAcplPlayer(store, player.acplPlayerId) || findAcplPlayer(store, player.acplName);
+      if (linked) {
+        player.acplPlayerId = linked.id;
+        player.acplName = linked.name;
+        return linked;
+      }
+      return null;
+    }
+    // Admin removed the link on purpose — do not silently re-attach one.
+    if (String(player.acplLinkSource || "").startsWith("manual")) return null;
+  }
+
   const match = findAcplPlayer(store, player.name);
   if (match) {
     player.acplPlayerId = match.id;
     player.acplName = match.name;
+    player.acplLinkSource = "auto";
     return match;
   }
   player.acplPlayerId = null;
