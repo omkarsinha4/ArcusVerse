@@ -1620,11 +1620,16 @@ export function listRegistrations(store, formId, { status } = {}) {
     }));
 }
 
-export function exportCsv(store, formId) {
-  const rows = listRegistrations(store, formId);
+/** CSV of a form's registrations, optionally narrowed to one category and/or status. */
+export function exportCsv(store, formId, { category = "", status = "" } = {}) {
+  const wanted = String(category || "").trim();
+  const rows = listRegistrations(store, formId, { status }).filter(
+    (r) => !wanted || categoryKey(r.values) === wanted
+  );
   const headers = [
     "Registration ID",
     "Sequence",
+    "Category No",
     "Registered At",
     "Player Name",
     "Mobile",
@@ -1656,6 +1661,7 @@ export function exportCsv(store, formId) {
       [
         r.registrationId,
         r.sequence,
+        r.categorySequence || r.sequence,
         new Date(r.registeredAt).toISOString(),
         v.playerName,
         v.mobile,
