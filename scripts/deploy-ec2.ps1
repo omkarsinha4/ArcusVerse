@@ -2,7 +2,7 @@ param(
   [string]$HostIp = "3.16.112.125",
   [string]$User = "ec2-user",
   [string]$Pem = "C:\Users\osinha\OneDrive - Qualys, Inc\Desktop\Keys\Arcusverse.pem",
-  [string]$PublicUrl = "http://3.16.112.125"
+  [string]$PublicUrl = "http://3.16.112.125:3000"
 )
 
 $ErrorActionPreference = "Stop"
