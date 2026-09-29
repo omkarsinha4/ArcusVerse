@@ -2,7 +2,7 @@ param(
   [string]$HostIp = "3.16.112.125",
   [string]$User = "ec2-user",
   [string]$Pem = "C:\Users\osinha\OneDrive - Qualys, Inc\Desktop\Keys\Arcusverse.pem",
-  [string]$PublicUrl = "http://3.16.112.125:3000"
+  [string]$PublicUrl = "http://3.16.112.125"
 )
 
 $ErrorActionPreference = "Stop"
@@ -76,11 +76,8 @@ echo "Installing systemd service..."
 sudo cp /home/ec2-user/arcusverse.service /etc/systemd/system/arcusverse.service
 sudo systemctl daemon-reload
 sudo systemctl enable arcusverse
-sudo systemctl restart arcusverse
-sleep 3
-sudo systemctl --no-pager --full status arcusverse || true
-echo "PUBLIC_URL=$${PUBLIC_URL}"
-curl -s -o /dev/null -w "local_http=%{http_code}\n" http://127.0.0.1:3000/ || true
+
+bash /home/ec2-user/ArcusVerse/deploy/serve-public-port.sh "$${PUBLIC_URL}"
 
 if command -v firewall-cmd >/dev/null 2>&1; then
   sudo firewall-cmd --permanent --add-port=3000/tcp || true
