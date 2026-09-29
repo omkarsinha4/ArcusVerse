@@ -914,8 +914,8 @@ export function RegistrationPanel({ admin, emit }: any) {
                 {linkReach === "unreachable" && (
                   <div className="space-y-2 text-xs" style={{ color: "#B91C1C" }}>
                     <p>
-                      This URL is not responding, so links already shared will not open. Share the
-                      one below until the server answers on it again.
+                      This URL is not responding, so links already shared will not open. Share this
+                      one instead until it is fixed:
                     </p>
                     <p className="break-all" style={{ color: "var(--ink)" }}>
                       {fallbackUrl}
