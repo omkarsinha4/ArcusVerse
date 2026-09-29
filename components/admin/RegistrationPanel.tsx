@@ -24,6 +24,42 @@ const FIELD_TYPES = [
   "info"
 ];
 
+/**
+ * Probe the URL admins are about to share. PUBLIC_URL can name a port the server
+ * does not actually answer on, which leaves the app healthy on its own port while
+ * every shared link times out — invisible from the admin screens otherwise.
+ */
+function usePublicUrlReachable(baseUrl: string, publicPath: string | undefined, enabled: boolean) {
+  const [state, setState] = useState<"idle" | "checking" | "ok" | "unreachable">("idle");
+
+  useEffect(() => {
+    if (!enabled || !baseUrl || !publicPath || typeof window === "undefined") {
+      setState("idle");
+      return;
+    }
+    if (baseUrl === window.location.origin) {
+      setState("ok");
+      return;
+    }
+    let cancelled = false;
+    const ctl = new AbortController();
+    const timer = window.setTimeout(() => ctl.abort(), 8000);
+    setState("checking");
+    // Any HTTP reply proves the port answers; the status itself does not matter.
+    fetch(`${baseUrl}/api/public/register/${encodeURIComponent(publicPath)}`, { signal: ctl.signal })
+      .then(() => !cancelled && setState("ok"))
+      .catch(() => !cancelled && setState("unreachable"))
+      .finally(() => window.clearTimeout(timer));
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+      ctl.abort();
+    };
+  }, [baseUrl, publicPath, enabled]);
+
+  return state;
+}
+
 function downloadCsv(filename: string, csv: string) {
   const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
   const url = URL.createObjectURL(blob);
@@ -265,6 +301,9 @@ export function RegistrationPanel({ admin, emit }: any) {
   const baseUrl = hello?.appUrl || (typeof window !== "undefined" ? window.location.origin : "");
   const publicPath = form?.publicSlug || form?.publicToken;
   const publicUrl = publicPath ? `${baseUrl}/register/${publicPath}` : "";
+  // This page loaded from here, so this origin is reachable by definition.
+  const fallbackUrl = publicPath && typeof window !== "undefined" ? `${window.location.origin}/register/${publicPath}` : "";
+  const linkReach = usePublicUrlReachable(baseUrl, publicPath, tab === "Settings");
 
   const refreshAdmin = (res: any) => {
     if (res?.admin) {
@@ -867,14 +906,42 @@ export function RegistrationPanel({ admin, emit }: any) {
                 <p className="text-xs" style={{ color: "var(--muted)" }}>
                   Letters, numbers, hyphens. Old secret token links still work.
                 </p>
-                <Button
-                  onClick={() => {
-                    navigator.clipboard?.writeText(`${baseUrl}/register/${draft.publicSlug || form.publicToken}`);
-                    setMsg("Public URL copied");
-                  }}
-                >
-                  Copy URL
-                </Button>
+                {linkReach === "checking" && (
+                  <p className="text-xs" style={{ color: "var(--muted)" }}>
+                    Checking that this URL is reachable…
+                  </p>
+                )}
+                {linkReach === "unreachable" && (
+                  <div className="space-y-2 text-xs" style={{ color: "#B91C1C" }}>
+                    <p>
+                      This URL is not responding, so links already shared will not open. Share the
+                      one below until the server answers on it again.
+                    </p>
+                    <p className="break-all" style={{ color: "var(--ink)" }}>
+                      {fallbackUrl}
+                    </p>
+                  </div>
+                )}
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    onClick={() => {
+                      navigator.clipboard?.writeText(`${baseUrl}/register/${draft.publicSlug || form.publicToken}`);
+                      setMsg("Public URL copied");
+                    }}
+                  >
+                    Copy URL
+                  </Button>
+                  {linkReach === "unreachable" && fallbackUrl && (
+                    <Button
+                      onClick={() => {
+                        navigator.clipboard?.writeText(fallbackUrl);
+                        setMsg("Working URL copied");
+                      }}
+                    >
+                      Copy working URL
+                    </Button>
+                  )}
+                </div>
               </div>
               <div className="flex flex-wrap gap-2">
                 <Button variant="bid" disabled={busy} onClick={saveDraft}>
