@@ -28,6 +28,40 @@ export function publicBaseUrl(port = Number(process.env.PORT || 3000)) {
   return `http://${raw}${raw.includes(":") ? "" : `:${port}`}`;
 }
 
+/** TCP port a public base URL resolves to — 80/443 when the URL omits one. */
+export function publicUrlPort(port = Number(process.env.PORT || 3000)) {
+  const base = publicBaseUrl(port);
+  if (!base) return null;
+  try {
+    const url = new URL(base);
+    if (url.port) return Number(url.port);
+    return url.protocol === "https:" ? 443 : 80;
+  } catch {
+    return null;
+  }
+}
+
+/** Same base URL with an explicit port, e.g. http://host -> http://host:3000. */
+export function baseUrlWithPort(base, port) {
+  try {
+    const url = new URL(String(base));
+    url.port = String(port);
+    return url.toString().replace(/\/+$/, "");
+  } catch {
+    return String(base || "");
+  }
+}
+
+/** Point every advertised URL at `port`, in place, so live clients pick it up. */
+export function repointAdvertiseUrls(urls, port) {
+  if (!urls || !urls.appUrl) return urls;
+  const appUrl = baseUrlWithPort(urls.appUrl, port);
+  urls.appUrl = appUrl;
+  urls.appUrls = [appUrl];
+  urls.spectatorUrls = [`${appUrl}/live`];
+  return urls;
+}
+
 /** URLs advertised to clients — prefer public host, else localhost + LAN. */
 export function advertiseUrls(port = Number(process.env.PORT || 3000)) {
   const pub = publicBaseUrl(port);

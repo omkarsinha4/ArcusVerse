@@ -4,7 +4,14 @@ import { Server } from "socket.io";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
-import { loadStore, advertiseUrls, saveStore, saveUpload } from "./server/store.mjs";
+import {
+  loadStore,
+  advertiseUrls,
+  publicUrlPort,
+  repointAdvertiseUrls,
+  saveStore,
+  saveUpload
+} from "./server/store.mjs";
 import { attachSockets } from "./server/sockets.mjs";
 import { adminState } from "./server/engine.mjs";
 import {
@@ -179,7 +186,7 @@ async function handleRegistrationApi(req, res) {
         {
           saveUploadFn: saveUpload,
           performedBy: "public",
-          appUrl: process.env.PUBLIC_URL || `http://${req.headers.host || "localhost:3000"}`
+          appUrl: urls?.appUrl || `http://${req.headers.host || "localhost:3000"}`
         }
       );
       saveStore(store);
@@ -228,7 +235,7 @@ async function handleRegistrationApi(req, res) {
   return false;
 }
 
-const httpServer = createServer(async (req, res) => {
+async function requestHandler(req, res) {
   try {
     if (servePublicUpload(req, res)) return;
     if (await handleRegistrationApi(req, res)) return;
@@ -237,7 +244,9 @@ const httpServer = createServer(async (req, res) => {
     return;
   }
   return handle(req, res);
-});
+}
+
+const httpServer = createServer(requestHandler);
 
 io = new Server(httpServer, {
   cors: { origin: true, credentials: true },
@@ -248,11 +257,46 @@ io = new Server(httpServer, {
 const urls = advertiseUrls(port);
 attachSockets(io, store, urls);
 
-startDailyRegistrationReportScheduler(() => store, {
+// Read lazily by the scheduler, so a port fallback also corrects emailed links.
+const emailDeps = {
   appUrl: urls.appUrl || process.env.PUBLIC_URL || "",
   dashboardForForm,
   formIsAccepting
-});
+};
+startDailyRegistrationReportScheduler(() => store, emailDeps);
+
+/**
+ * PUBLIC_URL is usually set without a port so chat apps linkify the registration
+ * URL, which makes port 80 part of the contract. Serve it from this process rather
+ * than a separate reverse proxy: when that proxy is missing or wedged, every shared
+ * link dies while the app still looks healthy on PORT. Needs
+ * CAP_NET_BIND_SERVICE for ports below 1024 (see deploy/arcusverse.service).
+ */
+function serveAdvertisedPort() {
+  const advertisedPort = publicUrlPort(port);
+  if (!advertisedPort || advertisedPort === port) return Promise.resolve(null);
+
+  return new Promise((resolve) => {
+    const mirror = createServer(requestHandler);
+    io.attach(mirror);
+    mirror.once("error", (err) => {
+      const reason =
+        err.code === "EACCES"
+          ? "permission denied — grant CAP_NET_BIND_SERVICE"
+          : err.code === "EADDRINUSE"
+            ? "already in use — stop whatever else holds it"
+            : err.message;
+      // Advertise the port we do serve: a working long link beats a dead short one.
+      repointAdvertiseUrls(urls, port);
+      emailDeps.appUrl = urls.appUrl;
+      mirror.close();
+      resolve({ port: advertisedPort, error: reason });
+    });
+    mirror.listen(advertisedPort, hostname, () => resolve({ port: advertisedPort }));
+  });
+}
+
+const advertised = await serveAdvertisedPort();
 
 httpServer.listen(port, hostname, () => {
   console.log("\n  ArcusVerse auction is live\n");
@@ -268,6 +312,12 @@ httpServer.listen(port, hostname, () => {
     } else {
       console.log("  No LAN IPv4 found — set PUBLIC_URL for internet hosting.");
     }
+  }
+  if (advertised?.error) {
+    console.warn(`\n  ! Port ${advertised.port} unavailable (${advertised.error})`);
+    console.warn(`  ! Shared registration links now use port ${port}`);
+  } else if (advertised) {
+    console.log(`  Shared links also served on port ${advertised.port}`);
   }
   console.log("");
 });
