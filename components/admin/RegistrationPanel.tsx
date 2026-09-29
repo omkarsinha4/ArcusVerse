@@ -172,6 +172,8 @@ export function RegistrationPanel({ admin, emit }: any) {
   const [dashboard, setDashboard] = useState<any>(null);
   const [selectedReg, setSelectedReg] = useState<any>(null);
   const [filterStatus, setFilterStatus] = useState("");
+  const [filterCategory, setFilterCategory] = useState("");
+  const [sort, setSort] = useState<{ key: string; dir: 1 | -1 }>({ key: "sequence", dir: 1 });
   const [search, setSearch] = useState("");
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState(false);
@@ -225,10 +227,44 @@ export function RegistrationPanel({ admin, emit }: any) {
     return (admin.players || []).find((p: any) => p.id === selectedReg.playerId) || null;
   }, [admin.players, selectedReg?.playerId]);
 
+  const formRegs = useMemo(
+    () => (admin.registration?.registrations || []).filter((r: any) => r.formId === form?.id),
+    [admin.registration, form?.id]
+  );
+
+  // Every category the form offers, plus any already used by a registration.
+  const categoryOptions = useMemo(() => {
+    const fromField = (form?.fields || []).find((f: any) => f.key === "category")?.options || [];
+    const declared = [...fromField, ...Object.keys(form?.categoryCapacity || {})];
+    const used = formRegs.map((r: any) => r.category || r.values?.category);
+    const out: string[] = [];
+    for (const raw of [...declared, ...used]) {
+      const value = String(raw || "").trim();
+      if (value && !out.includes(value)) out.push(value);
+    }
+    return out;
+  }, [form?.fields, form?.categoryCapacity, formRegs]);
+
   const regs = useMemo(() => {
-    const all = (admin.registration?.registrations || []).filter((r: any) => r.formId === form?.id);
-    return all
+    const sortValue = (r: any) => {
+      switch (sort.key) {
+        case "registrationId":
+          return String(r.registrationId || "");
+        case "playerName":
+          return String(r.playerName || r.values?.playerName || "").toLowerCase();
+        case "category":
+          return String(r.category || r.values?.category || "").toLowerCase();
+        case "status":
+          return String(r.status || "");
+        case "paymentStatus":
+          return String(r.paymentStatus || "");
+        default:
+          return Number(r.categorySequence || r.sequence || 0);
+      }
+    };
+    return formRegs
       .filter((r: any) => !filterStatus || r.status === filterStatus)
+      .filter((r: any) => !filterCategory || (r.category || r.values?.category) === filterCategory)
       .filter((r: any) => {
         if (!search.trim()) return true;
         const q = search.toLowerCase();
@@ -240,10 +276,27 @@ export function RegistrationPanel({ admin, emit }: any) {
           String(r.mobile || r.values?.mobile || "").includes(q)
         );
       })
-      .sort((a: any, b: any) => a.sequence - b.sequence);
-  }, [admin.registration, form?.id, filterStatus, search]);
+      .sort((a: any, b: any) => {
+        const va = sortValue(a);
+        const vb = sortValue(b);
+        let cmp =
+          typeof va === "number" && typeof vb === "number" ? va - vb : String(va).localeCompare(String(vb));
+        // Ties read naturally when they stay in registration-number order.
+        if (cmp === 0) {
+          cmp = Number(a.categorySequence || a.sequence || 0) - Number(b.categorySequence || b.sequence || 0);
+        }
+        return cmp * sort.dir;
+      });
+  }, [formRegs, filterStatus, filterCategory, search, sort]);
 
-  const waiting = regs.filter((r: any) => r.status === "waiting");
+  // Independent of the Registrations tab filters — this drives the Waiting list tab.
+  const waiting = useMemo(
+    () =>
+      formRegs
+        .filter((r: any) => r.status === "waiting")
+        .sort((a: any, b: any) => (a.waitingPosition || 0) - (b.waitingPosition || 0)),
+    [formRegs]
+  );
 
   const auctionTeamGroups = useMemo(() => {
     const all = (admin.registration?.registrations || []).filter((r: any) => r.formId === form?.id);
@@ -428,11 +481,17 @@ export function RegistrationPanel({ admin, emit }: any) {
     window.open(res.url, "_blank");
   };
 
+  // Exports what the Status and Category filters select, not the free-text search.
   const exportRegs = async () => {
     if (!form) return;
-    const res = await emit("reg-export", { formId: form.id });
+    const res = await emit("reg-export", {
+      formId: form.id,
+      category: filterCategory,
+      status: filterStatus
+    });
     if (!res.ok) throw new Error(res.error || "Export failed");
-    downloadCsv(`${form.idPrefix || "registrations"}.csv`, res.csv);
+    const parts = [form.idPrefix || "registrations", filterCategory, filterStatus].filter(Boolean);
+    downloadCsv(`${parts.join("-").replace(/[^A-Za-z0-9-]+/g, "")}.csv`, res.csv);
   };
 
   const selectedField = draft?.fields?.find((f: any) => f.key === selectedFieldKey);
@@ -1232,19 +1291,58 @@ export function RegistrationPanel({ admin, emit }: any) {
                       </option>
                     ))}
                   </Select>
-                  <Button onClick={exportRegs}>Export CSV</Button>
+                  <Select label="Category" value={filterCategory} onChange={(e) => setFilterCategory(e.target.value)}>
+                    <option value="">All</option>
+                    {categoryOptions.map((c) => (
+                      <option key={c} value={c}>
+                        {c}
+                      </option>
+                    ))}
+                  </Select>
+                  <Button onClick={exportRegs}>
+                    {filterCategory ? `Export ${filterCategory} CSV` : "Export CSV"}
+                  </Button>
                 </div>
+                <p className="text-xs" style={{ color: "var(--muted)" }}>
+                  Showing {regs.length} of {formRegs.length}. Click a column heading to sort. The export follows
+                  the Status and Category filters.
+                </p>
                 <div className="overflow-x-auto">
                   <table className="w-full min-w-[640px] text-left text-sm">
                     <thead>
                       <tr style={{ color: "var(--muted)" }}>
-                        <th className="py-2">ID</th>
-                        <th>#</th>
-                        <th>Player</th>
-                        <th>Category</th>
-                        <th>ACPL</th>
-                        <th>Status</th>
-                        <th>Payment</th>
+                        {[
+                          { key: "registrationId", label: "ID", className: "py-2" },
+                          { key: "sequence", label: "#" },
+                          { key: "playerName", label: "Player" },
+                          { key: "category", label: "Category" },
+                          { key: "", label: "ACPL" },
+                          { key: "status", label: "Status" },
+                          { key: "paymentStatus", label: "Payment" }
+                        ].map((col) =>
+                          col.key ? (
+                            <th key={col.label} className={col.className}>
+                              <button
+                                type="button"
+                                className="font-inherit cursor-pointer bg-transparent p-0 text-left"
+                                style={{ color: sort.key === col.key ? "var(--ink)" : "inherit" }}
+                                aria-label={`Sort by ${col.label}`}
+                                onClick={() =>
+                                  setSort((s) =>
+                                    s.key === col.key ? { key: col.key, dir: s.dir === 1 ? -1 : 1 } : { key: col.key, dir: 1 }
+                                  )
+                                }
+                              >
+                                {col.label}
+                                {sort.key === col.key ? (sort.dir === 1 ? " ▲" : " ▼") : ""}
+                              </button>
+                            </th>
+                          ) : (
+                            <th key={col.label} className={col.className}>
+                              {col.label}
+                            </th>
+                          )
+                        )}
                       </tr>
                     </thead>
                     <tbody>

@@ -12,7 +12,8 @@ import {
   unlinkPlayerFromAcpl,
   createForm,
   setFormStatus,
-  withRegLock
+  withRegLock,
+  exportCsv
 } from "../server/registration.mjs";
 import { buildAcplSeason6Form } from "../server/registration-template-acpl6.mjs";
 import { emptySeed, uid, saveUpload } from "../server/store.mjs";
@@ -521,4 +522,77 @@ test("concurrent submissions never overflow capacity", async () => {
   assert.equal(waiting.length, 5);
   const seqs = settled.map((r) => r.registration.sequence);
   assert.equal(new Set(seqs).size, 10);
+});
+
+test("CSV export can be narrowed to one category", async () => {
+  const store = makeStore();
+  const form = await seedOpenForm(store, 10);
+
+  const submit = async (i, category) => {
+    const photo = acplPhotoFile(form);
+    store.registrationFiles.push(photo);
+    return submitRegistration(
+      store,
+      {
+        token: form.publicToken,
+        values: { ...baseValues(i), category },
+        fileIds: { playerPhoto: photo.id }
+      },
+      { saveUploadFn: () => "/uploads/p.png", sendEmail: false }
+    );
+  };
+
+  await submit(1, "Men's");
+  await submit(2, "Women's");
+  await submit(3, "Men's");
+
+  const rows = (csv) => csv.trim().split("\n").slice(1);
+
+  assert.equal(rows(exportCsv(store, form.id)).length, 3);
+
+  const mens = exportCsv(store, form.id, { category: "Men's" });
+  assert.ok(mens.split("\n")[0].startsWith("Registration ID,Sequence,Category No,"));
+  assert.equal(rows(mens).length, 2);
+  assert.ok(rows(mens).every((line) => line.includes("Men's")));
+  assert.ok(!mens.includes("Player 2"));
+
+  const womens = exportCsv(store, form.id, { category: "Women's" });
+  assert.equal(rows(womens).length, 1);
+  assert.ok(womens.includes("Player 2"));
+
+  // An unknown category must export headers only, never fall back to everything.
+  assert.equal(rows(exportCsv(store, form.id, { category: "Nope" })).length, 0);
+});
+
+test("CSV export combines category and status filters", async () => {
+  const store = makeStore();
+  const form = await seedOpenForm(store, 10);
+
+  const submit = async (i, category) => {
+    const photo = acplPhotoFile(form);
+    store.registrationFiles.push(photo);
+    return submitRegistration(
+      store,
+      {
+        token: form.publicToken,
+        values: { ...baseValues(i), category },
+        fileIds: { playerPhoto: photo.id }
+      },
+      { saveUploadFn: () => "/uploads/p.png", sendEmail: false }
+    );
+  };
+
+  await submit(1, "Men's");
+  await submit(2, "Men's");
+  await submit(3, "Women's");
+  const men1Id = store.registrations.find((r) => r.values.playerName === "Player 1").id;
+  await updateRegistrationStatus(store, men1Id, "cancelled", "admin");
+
+  const rows = (csv) => csv.trim().split("\n").slice(1);
+
+  assert.equal(rows(exportCsv(store, form.id, { category: "Men's" })).length, 2);
+  assert.equal(rows(exportCsv(store, form.id, { category: "Men's", status: "registered" })).length, 1);
+  assert.equal(rows(exportCsv(store, form.id, { status: "cancelled" })).length, 1);
+  assert.ok(exportCsv(store, form.id, { category: "Men's", status: "cancelled" }).includes("Player 1"));
+  assert.equal(rows(exportCsv(store, form.id, { category: "Women's", status: "cancelled" })).length, 0);
 });

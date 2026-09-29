@@ -1369,7 +1369,7 @@ export function attachSockets(io, store, urls) {
       "reg-export",
       wrap((p) => {
         requireRole(socket, REG_ADMIN);
-        return { csv: exportCsv(store, p.formId) };
+        return { csv: exportCsv(store, p.formId, { category: p.category, status: p.status }) };
       })
     );
 
